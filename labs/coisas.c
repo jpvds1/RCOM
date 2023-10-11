@@ -1,4 +1,4 @@
-// Read from serial port in non-canonical mode
+// Write to serial port in non-canonical mode
 //
 // Modified by: Eduardo Nuno Almeida [enalmeida@fe.up.pt]
 
@@ -23,32 +23,24 @@
 
 volatile int STOP = FALSE;
 
-int main(int argc, char *argv[])
+int fd;
+struct termios oldtio;
+struct termios newtio;
+unsigned char buf_send[BUF_SIZE] = {0};
+unsigned char buf_receive[BUF_SIZE + 1] = {0}; // +1: Save space for the final '\0' char
+char *serialPortName;
+
+void setup()
 {
-    // Program usage: Uses either COM1 or COM2
-    const char *serialPortName = argv[1];
-
-    if (argc < 2)
-    {
-        printf("Incorrect program usage\n"
-               "Usage: %s <SerialPort>\n"
-               "Example: %s /dev/ttyS1\n",
-               argv[0],
-               argv[0]);
-        exit(1);
-    }
-
-    // Open serial port device for reading and writing and not as controlling tty
+    // Open serial port device for reading and writing, and not as controlling tty
     // because we don't want to get killed if linenoise sends CTRL-C.
-    int fd = open(serialPortName, O_RDWR | O_NOCTTY);
+    fd = open(serialPortName, O_RDWR | O_NOCTTY);
+
     if (fd < 0)
     {
         perror(serialPortName);
         exit(-1);
     }
-
-    struct termios oldtio;
-    struct termios newtio;
 
     // Save current port settings
     if (tcgetattr(fd, &oldtio) == -1)
@@ -88,58 +80,60 @@ int main(int argc, char *argv[])
 
     printf("New termios structure set\n");
 
-    // Loop for input
-    unsigned char buf[BUF_SIZE + 1] = {0}; // +1: Save space for the final '\0' char
+    // Create string to send
+    //memset(buf_send, BUF_SIZE, 0);
+}
 
-    int abc = 0;
+void send_message()
+{
+    int flag = 0x7E;
+    int adress = 0x03;
+    int control = 0x03;
+    int bcc = adress ^ control;
+    
+    memset(buf_send, BUF_SIZE, 0);  
+    
+    buf_send[1] = adress;
+    buf_send[0] = flag;
+    buf_send[2] = control;
+    buf_send[3] = bcc;
+    buf_send[4] = flag;
+    
+    int bytes = write(fd, buf_send, BUF_SIZE);
+    printf("%d bytes written\n", bytes);
+}
 
+void receive_message()
+{
     while (STOP == FALSE)
     {
         // Returns after 5 chars have been input
-        memset(buf, BUF_SIZE, 0);
-        int bytes = read(fd, buf, BUF_SIZE);
-        buf[bytes] = '\0'; // Set end of string to '\0', so we can printf
+        int bytes = read(fd, buf_receive, BUF_SIZE);
+        buf_receive[bytes] = '\0'; // Set end of string to '\0', so we can printf
 
-        
-        if (buf[4] == 0x7E && (buf[1] ^ buf[2] == buf[3]))
+        printf(":%s:%d\n", buf_receive, bytes);
+        if (buf_receive[2] == 0x07)
         {
-            printf(":%s:%d\n", buf, bytes);
-            abc++;
-            if(abc == 4)
+            if(buf_receive[1] ^ buf_receive[2] != buf_receive[3])
             {
-                STOP = TRUE;
+                printf("erro D:");
             }
-            //printf("var = 0x%02X\n", buf);
+            STOP = TRUE;
+            printf("it read\n");
+            for(int i=0; i<5; i++)
+            {
+                printf("var = 0x%02X\n", buf_receive[i]);
+            }
         }
     }
-    
-    unsigned char buf2[BUF_SIZE] = {0};
+}
 
-    int flag = 0x7E;
-    int adress = 0x01;
-    int control = 0x07;
-    int bcc = adress ^ control;
-    
-    buf2[0] = flag;
-    buf2[1] = adress;
-    buf2[2] = control;
-    buf2[3] = bcc;
-    buf2[4] = flag;
-
-    int bytes = write(fd, buf2, BUF_SIZE);
-    printf("%d bytes written\n", bytes);
-
-    // The while() cycle should be changed in order to respect the specifications
-    // of the protocol indicated in the Lab guide
-
+void restore()
+{
     // Restore the old port settings
     if (tcsetattr(fd, TCSANOW, &oldtio) == -1)
     {
         perror("tcsetattr");
         exit(-1);
     }
-
-    close(fd);
-
-    return 0;
 }

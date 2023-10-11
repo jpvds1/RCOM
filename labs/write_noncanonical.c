@@ -23,33 +23,23 @@
 
 volatile int STOP = FALSE;
 
-int main(int argc, char *argv[])
+int fd;
+struct termios oldtio;
+struct termios newtio;
+unsigned char buf_send[BUF_SIZE] = {0};
+unsigned char buf_receive[BUF_SIZE + 1] = {0}; // +1: Save space for the final '\0' char
+
+void setup(const char *serialPortName)
 {
-    // Program usage: Uses either COM1 or COM2
-    const char *serialPortName = argv[1];
-
-    if (argc < 2)
-    {
-        printf("Incorrect program usage\n"
-               "Usage: %s <SerialPort>\n"
-               "Example: %s /dev/ttyS1\n",
-               argv[0],
-               argv[0]);
-        exit(1);
-    }
-
     // Open serial port device for reading and writing, and not as controlling tty
     // because we don't want to get killed if linenoise sends CTRL-C.
-    int fd = open(serialPortName, O_RDWR | O_NOCTTY);
+    fd = open(serialPortName, O_RDWR | O_NOCTTY);
 
     if (fd < 0)
     {
         perror(serialPortName);
         exit(-1);
     }
-
-    struct termios oldtio;
-    struct termios newtio;
 
     // Save current port settings
     if (tcgetattr(fd, &oldtio) == -1)
@@ -90,30 +80,95 @@ int main(int argc, char *argv[])
     printf("New termios structure set\n");
 
     // Create string to send
-    unsigned char buf[BUF_SIZE] = {0};
+    memset(buf_send, BUF_SIZE, 0);
+}
 
-    for (int i = 0; i < BUF_SIZE; i++)
-    {
-        buf[i] = 'a' + i % 26;
-    }
-
-    // In non-canonical mode, '\n' does not end the writing.
-    // Test this condition by placing a '\n' in the middle of the buffer.
-    // The whole buffer must be sent even with the '\n'.
-    buf[5] = '\n';
-
-    int bytes = write(fd, buf, BUF_SIZE);
+void send_message()
+{
+    int flag = 0x7E;
+    int adress = 0x03;
+    int control = 0x03;
+    int bcc = adress ^ control;
+    
+    memset(buf_send, BUF_SIZE, 0);  
+    
+    buf_send[1] = adress;
+    buf_send[0] = flag;
+    buf_send[2] = control;
+    buf_send[3] = bcc;
+    buf_send[4] = flag;
+    
+    int bytes = write(fd, buf_send, BUF_SIZE);
     printf("%d bytes written\n", bytes);
+}
 
-    // Wait until all bytes have been written to the serial port
-    sleep(1);
+void receive_message()
+{
+    while (STOP == FALSE)
+    {
+        // Returns after 5 chars have been input
+        int bytes = read(fd, buf_receive, BUF_SIZE);
+        buf_receive[bytes] = '\0'; // Set end of string to '\0', so we can printf
 
+        printf(":%s:%d\n", buf_receive, bytes);
+        if (buf_receive[2] == 0x07)
+        {
+            if(buf_receive[1] ^ buf_receive[2] != buf_receive[3])
+            {
+                printf("erro D:");
+            }
+            STOP = TRUE;
+            printf("it read\n");
+            for(int i=0; i<5; i++)
+            {
+                printf("var = 0x%02X\n", buf_receive[i]);
+            }
+        }
+    }
+}
+
+void restore()
+{
     // Restore the old port settings
     if (tcsetattr(fd, TCSANOW, &oldtio) == -1)
     {
         perror("tcsetattr");
         exit(-1);
     }
+}
+
+int main(int argc, char *argv[])
+{
+    // Program usage: Uses either COM1 or COM2
+    const char *serialPortName = argv[1];
+
+    if (argc < 2)
+    {
+        printf("Incorrect program usage\n"
+               "Usage: %s <SerialPort>\n"
+               "Example: %s /dev/ttyS1\n",
+               argv[0],
+               argv[0]);
+        exit(1);
+    }
+
+    // In non-canonical mode, '\n' does not end the writing.
+    // Test this condition by placing a '\n' in the middle of the buffer.
+    // The whole buffer must be sent even with the '\n'.
+    //buf[5] = '\n';
+    setup(serialPortName);
+    send_message();
+    
+
+    // Wait until all bytes have been written to the serial port
+    sleep(1);
+    
+    receive_message();
+    restore();
+        
+    
+
+    
 
     close(fd);
 
