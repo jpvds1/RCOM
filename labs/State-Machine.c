@@ -62,6 +62,22 @@ void send_message()
     //printf("%d bytes written\n", bytes);
 }
 
+void resend_message()
+{
+    int flag = 0x7E;
+    int adress = 0x01;
+    int control = 0x07;
+    int bcc = adress ^ control;
+    
+    buf_send[0] = flag;
+    buf_send[1] = adress;
+    buf_send[2] = control;
+    buf_send[3] = bcc;
+    buf_send[4] = flag;
+
+    int bytes = write(fd, buf_send, BUF_SIZE);
+}
+
 void restore()
 {
     // Restore the old port settings
@@ -159,6 +175,8 @@ int main(int argc, char *argv[])
     printf("\nflag = %d\n", flag);
     printf("adress = %d\n", adress);
     printf("control = %d\n", control);
+
+    resend_message();
 
     restore();
 
