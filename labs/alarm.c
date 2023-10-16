@@ -130,11 +130,11 @@ int main(int argc, char *argv[])
     
     (void)signal(SIGALRM, alarmHandler);
     
-    sleep(1);
     unsigned char buffer[BUF_SIZE + 1] = {0}; // +1: Save space for the final '\0' char
     int bytess;
+    int STOP = FALSE;
     
-    while (alarmCount < 4)
+    while (STOP != TRUE)
     {
         //memset(&buffer, BUF_SIZE, 0);
         bytess = read(fd, buffer, BUF_SIZE);
@@ -149,7 +149,7 @@ int main(int argc, char *argv[])
         if (alarmEnabled == FALSE)
         {
             send_message();
-            alarm(3); // Set alarm to be triggered in 3s
+            alarm(1); // Set alarm to be triggered in 3s
             alarmEnabled = TRUE;
         }
     }
