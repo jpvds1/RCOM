@@ -3,6 +3,7 @@
 #include "application_layer.h"
 #include "link_layer.h"
 #include "string.h"
+#include <stdio.h>
 
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename)
@@ -17,13 +18,26 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     else
         linkLayer.role = LlTx;
 
-    if(llopen(linkLayer) != 0) return -1;
+    if(llopen(linkLayer) != 0) return 1;
+
+    /*
     if(linkLayer.role == LlTx)
     {
-        if(llwrite() != 0) return -1;
+        FILE *gif;
+        unsigned char buf;
+        char c;
+        int bufSize;
+
+        gif = fopen(filename, "r");
+        if(buf == NULL) return 1;
+
+        for(c = getc(gif); c != EOF; c = getc(gif)) bufSize++;
+
+        if(llwrite() != 0) return 1;
     }
     else
     {
-        if(llread() != 0) return -1;
+        if(llread() != 0) return 1;
     }
+    */
 }

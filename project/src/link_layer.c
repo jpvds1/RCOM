@@ -52,7 +52,7 @@ int llopen(LinkLayer connectionParameters)
 {
     fd = setup(connectionParameters);
 
-    if(fd < 0) return -1;
+    if(fd < 0) return 1;
 
     if(connectionParameters.role == LlTx)
     {
@@ -105,8 +105,8 @@ int setup(LinkLayer connectionParameters) //Setup the connection
 
     fd = open(connectionParameters.serialPort, O_RDWR | O_NOCTTY);
 
-    if (fd < 0){perror(connectionParameters.serialPort); return -1;}
-    if(tcgetattr(fd, &oldtio) == -1){perror("tcgetattr"); return -1;}
+    if (fd < 0){perror(connectionParameters.serialPort); return 1;}
+    if(tcgetattr(fd, &oldtio) == -1){perror("tcgetattr"); return 1;}
 
     memset(&newtio, 0, sizeof(newtio));
     newtio.c_cflag = connectionParameters.baudRate | CS8 | CLOCAL | CREAD;
@@ -125,7 +125,7 @@ int setup(LinkLayer connectionParameters) //Setup the connection
     }
     tcflush(fd, TCIOFLUSH);
 
-    if (tcsetattr(fd, TCSANOW, &newtio) == -1){perror("tcsetattr"); return -1;}
+    if (tcsetattr(fd, TCSANOW, &newtio) == -1){perror("tcsetattr"); return 1;}
     
     return fd;
 }
@@ -189,7 +189,7 @@ int ll_open_Tx()
         }
         else if(alarmEnabled == FALSE && alarmCount == retries)
         {
-            return -1;
+            return 1;
         }
         //Recieve message
         bytess = read(fd, buf_receive, 1);
