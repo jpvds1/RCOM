@@ -2,7 +2,13 @@
 
 #include "link_layer.h"
 #include <fcntl.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <termios.h>
+#include <unistd.h>
 #include <signal.h>
 
 // MISC
@@ -107,20 +113,26 @@ int setup(LinkLayer connectionParameters) //Setup the connection
     newtio.c_iflag = IGNPAR;
     newtio.c_oflag = 0;
     newtio.c_lflag = 0;
-    newtio.c_cc[VTIME] = timeout * 10;
-    newtio.c_cc[VMIN] = 1;
+    if(connectionParameters.role == LlRx)
+    {
+        newtio.c_cc[VTIME] = 0;
+        newtio.c_cc[VMIN] = 1;
+    }
+    else
+    {
+        newtio.c_cc[VTIME] = 1;
+        newtio.c_cc[VMIN] = 1;
+    }
     tcflush(fd, TCIOFLUSH);
 
     if (tcsetattr(fd, TCSANOW, &newtio) == -1){perror("tcsetattr"); return -1;}
-
-    printf("New termios structure set\n");
     
     return fd;
 }
 
 int send_SET() //Send SET message from Tx to Rx
 {
-    memset(buf_send, BUF_SIZE, 0); //Clear sending buffer
+    memset(&buf_send, 0, BUF_SIZE); //Clear sending buffer
 
     buf_send[0] = 0x7e; //Flag = 0x7e
     buf_send[1] = 0x03; //Adress = 0x03
@@ -129,11 +141,13 @@ int send_SET() //Send SET message from Tx to Rx
     buf_send[4] = 0x7e; //Flag = 0x7e
 
     write(fd, buf_send, 5);
+
+    return 0;
 }
 
 int send_UA() //Send UA message from Rx to Tx
 {
-    memset(buf_send, BUF_SIZE, 0); //Clear sending buffer
+    memset(&buf_send, 0, BUF_SIZE); //Clear sending buffer
 
     buf_send[0] = 0x7e; //Flag = 0x7e
     buf_send[1] = 0x01; //Adress = 0x01
@@ -142,14 +156,14 @@ int send_UA() //Send UA message from Rx to Tx
     buf_send[4] = 0x7e; //Flag = 0x7e
 
     write(fd, buf_send, 5);
+
+    return 0;
 }
 
 void alarmHandler(int signal)
 {
     alarmEnabled = FALSE;
     alarmCount++;
-
-    printf("Alarm #%d\n", alarmCount);
 }
 
 int ll_open_Tx()
@@ -160,8 +174,10 @@ int ll_open_Tx()
     int adress;
     int control;
     alarmCount = 0;
-    alarm(0);
-
+    //alarm(0);
+    send_SET();
+    alarm(timeout);
+    
     while(TRUE)
     {
         //Check timeouts
@@ -185,44 +201,45 @@ int ll_open_Tx()
                 if(buf_receive[0] == 0x7e)
                 {
                     flag = buf_receive[0];
-                    stage++;
+                    stage = FLAG;
                 }
                 break;
             case FLAG:
-                if(buf_receive[0] == 0x03)
+                if(buf_receive[0] == 0x01)
                 {
-                    stage++;
+                    stage = ADRESS;
                     adress = buf_receive[0];
                 }
-                else if(buf_receive[0] == 0x7e)
-                    break;
+                else if(buf_receive[0] == 0x7e);
                 else
-                    stage = 0;
+                    stage = START;
                 break;
             case ADRESS:
-                if(buf_receive[0] == 0x03)
+                if(buf_receive[0] == 0x07)
                 {
-                    stage++;
+                    stage = CONTROL;
                     control = buf_receive[0];
                 }
                 else if(buf_receive[0] == 0x7e)
-                    stage = 1;
+                    stage = FLAG;
                 else
-                    stage = 0;
+                    stage = START;
                 break;
             case CONTROL:
-                if(buf_receive[0] == adress ^ control)
-                    stage++;
-                else if(buf_receive[0] = 0x7e)
-                    stage = 1;
+                if(buf_receive[0] == (adress ^ control))
+                    stage = BCC;
+                else if(buf_receive[0] == 0x7e)
+                    stage = FLAG;
                 else
-                    stage = 0;
+                    stage = START;
                 break;
             case BCC:
                 if(buf_receive[0] == 0x7e)
+                {
                     return 0;
+                }
                 else
-                    stage = 0;
+                    stage = START;
                 break;
             default:
                 break;
@@ -250,62 +267,48 @@ int ll_open_Rx()
                 if(buf_receive[0] == 0x7e)
                 {
                     flag = buf_receive[0];
-                    stage = FLAG;
+                    stage++;
                 }
                 break;
             case FLAG:
-                if(buf_receive[0] == 0x07)
+                if(buf_receive[0] == 0x03)
                 {
-                    stage = ADRESS;
+                    stage++;
                     adress = buf_receive[0];
                 }
                 else if(buf_receive[0] == 0x7e);
                 else
-                    stage = START;
+                    stage = 0;
                 break;
             case ADRESS:
-                if(buf_receive[0] == 0x01)
+                if(buf_receive[0] == 0x03)
                 {
-                    stage = CONTROL;
+                    stage++;
                     control = buf_receive[0];
                 }
-                else if(buf_receive[0] = 0x07);
                 else if(buf_receive[0] == 0x7e)
-                    stage = FLAG;
+                    stage = 1;
                 else
-                    stage = START;
+                    stage = 0;
                 break;
             case CONTROL:
-                if(buf_receive[0] == adress ^ control)
-                    stage = BCC;
-                else if(buf_receive[0] = 0x7e)
-                    stage = FLAG;
+                if(buf_receive[0] == (adress ^ control))
+                    stage++;
+                else if(buf_receive[0] == 0x7e)
+                    stage = 1;
                 else
-                    stage = START;
+                    stage = 0;
                 break;
             case BCC:
                 if(buf_receive[0] == 0x7e)
                     stage = END;
                 else
-                    stage = START;
+                    stage = 0;
                 break;
             default:
                 break;
         }
     }
 
-    alarm(0);
-    while (TRUE)
-    {
-        if(alarmEnabled == FALSE && alarmCount < retries)
-        {
-            send_UA();
-            alarm(timeout);
-            alarmEnabled = TRUE;
-        }
-        else if(alarmEnabled == FALSE && alarmCount == retries)
-        {
-            return -1;
-        }
-    }
+    return send_UA();
 }
