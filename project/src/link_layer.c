@@ -10,6 +10,7 @@
 #include <termios.h>
 #include <unistd.h>
 #include <signal.h>
+#include <stdbool.h>
 
 // MISC
 #define _POSIX_SOURCE 1 // POSIX compliant source
@@ -44,6 +45,7 @@ int send_UA();
 //Aux functions
 int ll_open_Tx();
 int ll_open_Rx();
+int send_inf_frame(bool tx, bool one, const unsigned char* buf, int bufSize);
 
 ////////////////////////////////////////////////
 // LLOPEN
@@ -71,8 +73,7 @@ int llopen(LinkLayer connectionParameters)
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize)
 {
-    // TODO
-
+    send_inf_frame(1, 0, buf, bufSize);
     return 0;
 }
 
@@ -307,4 +308,32 @@ int ll_open_Rx()
     }
 
     return send_UA();
+}
+
+int send_inf_frame(bool tx, bool one, const unsigned char* buf, int bufSize)
+{
+    int control;
+    int adress;
+    int bcc2 = buf[0];
+
+    if(tx == 1){adress == 0x03;}
+    else {adress == 0x01;}
+    if(one == 1){control == 0x40;}
+    else {control = 0x00;}
+
+    buf_send[0] = 0x7E;
+    buf_send[1] = adress;
+    buf_send[2] = control;
+    buf_send[3] = adress ^ control;
+    if(memcpy(buf_send + 4, buf, bufSize) == NULL){return 1;}
+    
+    for(int i = 1; i < bufSize; i++)
+    {
+        bcc2 = bcc2 ^ buf[i];
+    }
+
+    buf_send[4 + bufSize] = bcc2;
+    buf_send[5 + bufSize] = 0x7E;
+
+    return 0;
 }
