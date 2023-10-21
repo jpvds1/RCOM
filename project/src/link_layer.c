@@ -63,7 +63,7 @@ int llopen(LinkLayer connectionParameters)
         if(ll_open_Rx()) return 1;
     }
 
-    return 1;
+    return 0;
 }
 
 ////////////////////////////////////////////////
@@ -169,8 +169,7 @@ void alarmHandler(int signal)
 int ll_open_Tx()
 {
 
-    int stage = 0;
-    int flag;
+    int stage = START;
     int adress;
     int control;
     alarmCount = 0;
@@ -200,7 +199,6 @@ int ll_open_Tx()
             case START:
                 if(buf_receive[0] == 0x7e)
                 {
-                    flag = buf_receive[0];
                     stage = FLAG;
                 }
                 break;
@@ -250,7 +248,6 @@ int ll_open_Tx()
 int ll_open_Rx()
 {
     int stage = START;
-    int flag;
     int adress;
     int control;
     alarmCount = 0;
@@ -266,7 +263,6 @@ int ll_open_Rx()
             case START:
                 if(buf_receive[0] == 0x7e)
                 {
-                    flag = buf_receive[0];
                     stage++;
                 }
                 break;
