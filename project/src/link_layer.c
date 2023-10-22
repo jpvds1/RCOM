@@ -38,7 +38,7 @@ int bytess;
 int STOP = FALSE;
 int retries;
 int timeout;
-bool one;
+bool one = FALSE;
 
 //Setup Functions
 int setup(LinkLayer connectionParameters);
@@ -59,18 +59,18 @@ int llopen(LinkLayer connectionParameters)
 {
     fd = setup(connectionParameters);
 
-    if(fd < 0) return 1;
+    if(fd < 0) return -1;
 
     if(connectionParameters.role == LlTx)
     {
-        if(ll_open_Tx()) return 1;
+        if(ll_open_Tx()) return -1;
     }
     else
     {
-        if(ll_open_Rx()) return 1;
+        if(ll_open_Rx()) return -1;
     }
 
-    return 0;
+    return fd;
 }
 
 ////////////////////////////////////////////////
@@ -96,8 +96,8 @@ int llwrite(const unsigned char *buf, int bufSize)
 
     one = !one; //Mudar o numero da proxima frame
 
-    if(result != ACCEPTED){return 1;}
-    return 0;
+    if(result != ACCEPTED){return -1;}
+    return bufSize;
 }
 
 ////////////////////////////////////////////////
@@ -164,7 +164,7 @@ int send_SET() //Send SET message from Tx to Rx
     buf_send[3] = buf_send[1] ^ buf_send[2]; //BCC1 = Adress XOR Control
     buf_send[4] = 0x7e; //Flag = 0x7e
 
-    write(fd, buf_send, 5);
+    if(write(fd, buf_send, 5) < 0){perror("send_Set write failed\n"); return 1;}
 
     return 0;
 }
@@ -179,7 +179,7 @@ int send_UA() //Send UA message from Rx to Tx
     buf_send[3] = buf_send[1] ^ buf_send[2]; //BCC1 = Adress XOR Control
     buf_send[4] = 0x7e; //Flag = 0x7e
 
-    write(fd, buf_send, 5);
+    if(write(fd, buf_send, 5) < 0){perror("send_UA write failed\n"); return 1;}
 
     return 0;
 }
@@ -341,9 +341,9 @@ int send_inf_frame(bool tx, const unsigned char* buf, int bufSize)
     int bcc2 = buf[0];
 
     //Set sender values
-    if(tx == 1){adress == 0x03;}
-    else {adress == 0x01;}
-    if(one == 1){control == 0x40;}
+    if(tx == 1){adress = 0x03;}
+    else {adress = 0x01;}
+    if(one == 1){control = 0x40;}
     else {control = 0x00;}
 
     buf_send[0] = 0x7E;
@@ -449,6 +449,5 @@ int read_control_frame()
     }
 
     if(stage != END){value = PENDING;}
-
     return value;
 }
