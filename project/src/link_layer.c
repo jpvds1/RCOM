@@ -23,6 +23,9 @@
 #define CONTROL 3
 #define BCC 4
 #define END 5
+#define PENDING 6
+#define ACCEPTED 7
+#define REJECTED 8
 
 int fd;
 struct termios oldtio;
@@ -35,6 +38,7 @@ int bytess;
 int STOP = FALSE;
 int retries;
 int timeout;
+bool one;
 
 //Setup Functions
 int setup(LinkLayer connectionParameters);
@@ -45,7 +49,8 @@ int send_UA();
 //Aux functions
 int ll_open_Tx();
 int ll_open_Rx();
-int send_inf_frame(bool tx, bool one, const unsigned char* buf, int bufSize);
+int send_inf_frame(bool tx, const unsigned char* buf, int bufSize);
+int read_control_frame();
 
 ////////////////////////////////////////////////
 // LLOPEN
@@ -73,7 +78,25 @@ int llopen(LinkLayer connectionParameters)
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize)
 {
-    send_inf_frame(1, 0, buf, bufSize);
+    //Iniciar variaveis
+    int result = PENDING; //resultado da leitura
+    alarmCount = 0;       //Pending = Não recebeu mensagem antes do alarme acionar
+                          //Rejected = Recebeu a mensagem de REJ
+                          //Accepted = Recebeu a mensagem de RR  
+
+    //loop para enviar inf frame e esperar pela mensagem
+    while(alarmCount < retries && result != ACCEPTED)
+    {
+        send_inf_frame(1, buf, bufSize);
+        alarm(timeout);
+        alarmEnabled = TRUE;
+        result = read_control_frame(); //State machine
+        if(result == REJECTED){alarmCount = 0;} //Se for rejected da reset as tries
+    }
+
+    one = !one; //Mudar o numero da proxima frame
+
+    if(result != ACCEPTED){return 1;}
     return 0;
 }
 
@@ -310,12 +333,14 @@ int ll_open_Rx()
     return send_UA();
 }
 
-int send_inf_frame(bool tx, bool one, const unsigned char* buf, int bufSize)
+int send_inf_frame(bool tx, const unsigned char* buf, int bufSize)
 {
+    //Iniciar variaveis
     int control;
     int adress;
     int bcc2 = buf[0];
 
+    //Set sender values
     if(tx == 1){adress == 0x03;}
     else {adress == 0x01;}
     if(one == 1){control == 0x40;}
@@ -325,9 +350,9 @@ int send_inf_frame(bool tx, bool one, const unsigned char* buf, int bufSize)
     buf_send[1] = adress;
     buf_send[2] = control;
     buf_send[3] = adress ^ control;
-    if(memcpy(buf_send + 4, buf, bufSize) == NULL){return 1;}
+    if(memcpy(buf_send + 4, buf, bufSize) == NULL){return 1;} //Copiar a data para a frame
     
-    for(int i = 1; i < bufSize; i++)
+    for(int i = 1; i < bufSize; i++) //Fazer o ^ a todos os bytes dos dados
     {
         bcc2 = bcc2 ^ buf[i];
     }
@@ -336,4 +361,94 @@ int send_inf_frame(bool tx, bool one, const unsigned char* buf, int bufSize)
     buf_send[5 + bufSize] = 0x7E;
 
     return 0;
+}
+
+int read_control_frame()
+{
+    int stage = START;
+    int adress;
+    int control;
+    int value = PENDING;
+
+    while(alarmEnabled != TRUE)
+    {
+        //Recieve message
+        bytess = read(fd, buf_receive, 1);
+        buf_receive[bytess] = '\0';
+        //Process message
+        switch (stage)
+        {
+        case START:
+                if(buf_receive[0] == 0x7e)
+                {
+                    stage = FLAG;
+                }
+                break;
+
+            case FLAG:
+                if(buf_receive[0] == 0x03)
+                {
+                    stage = ADRESS;
+                    adress = buf_receive[0];
+                }
+                else if(buf_receive[0] == 0x7e);
+                else
+                    stage = 0;
+                break;
+
+            case ADRESS:
+                if(buf_receive[0] == 0x85 && one == 0)
+                {
+                    stage = CONTROL;
+                    control = buf_receive[0];
+                    value = ACCEPTED;
+                }
+                else if(buf_receive[0] == 0x05 && one == 1)
+                {
+                    stage = CONTROL;
+                    control = buf_receive[0];
+                    value = ACCEPTED;
+                }
+                else if(buf_receive[0] == 0x01 && one == 0)
+                {
+                    stage = CONTROL;
+                    control = buf_receive[0];
+                    value = REJECTED;
+                }
+                else if(buf_receive[0] == 0x81 && one == 1)
+                {
+                    stage = CONTROL;
+                    control = buf_receive[0];
+                    value = REJECTED;
+                }
+                else if(buf_receive[0] == 0x7e)
+                    stage = FLAG;
+                else
+                    stage = START;
+                break;
+
+            case CONTROL:
+                if(buf_receive[0] == (adress ^ control))
+                    stage = BCC;
+                else if(buf_receive[0] == 0x7e)
+                    stage = FLAG;
+                else
+                    stage = START;
+                break;
+
+            case BCC:
+                if(buf_receive[0] == 0x7e)
+                    stage = END;
+                else
+                    stage = START;
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    if(stage != END){value = PENDING;}
+
+    return value;
 }
