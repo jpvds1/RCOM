@@ -32,7 +32,7 @@ struct termios oldtio;
 struct termios newtio;
 int alarmEnabled = TRUE;
 int alarmCount = 0;
-unsigned char buf_send[BUF_SIZE] = {0}; 
+unsigned char buf_send[MAX_PAYLOAD_SIZE * 2 + 6] = {0}; 
 unsigned char buf_receive[2] = {0}; // +1: Save space for the final '\0' char
 int bytess;
 int STOP = FALSE;
@@ -79,6 +79,7 @@ int llopen(LinkLayer connectionParameters)
 int llwrite(const unsigned char *buf, int bufSize)
 {
     //Iniciar variaveis
+    alarm(0);
     int result = PENDING; //resultado da leitura
     alarmCount = 0;       //Pending = Não recebeu mensagem antes do alarme acionar
                           //Rejected = Recebeu a mensagem de REJ
@@ -96,7 +97,7 @@ int llwrite(const unsigned char *buf, int bufSize)
 
     one = !one; //Mudar o numero da proxima frame
 
-    if(result != ACCEPTED){return -1;}
+    //if(result != ACCEPTED){return -1;}
     return bufSize;
 }
 
@@ -144,8 +145,8 @@ int setup(LinkLayer connectionParameters) //Setup the connection
     }
     else
     {
-        newtio.c_cc[VTIME] = 1;
-        newtio.c_cc[VMIN] = 1;
+        newtio.c_cc[VTIME] = 0;
+        newtio.c_cc[VMIN] = 0;
     }
     tcflush(fd, TCIOFLUSH);
 
@@ -360,6 +361,8 @@ int send_inf_frame(bool tx, const unsigned char* buf, int bufSize)
     buf_send[4 + bufSize] = bcc2;
     buf_send[5 + bufSize] = 0x7E;
 
+    if(write(fd, buf_send, bufSize+5) < 0){perror("send_Set write failed\n"); return 1;}
+
     return 0;
 }
 
@@ -370,12 +373,10 @@ int read_control_frame()
     int control;
     int value = PENDING;
 
-    while(alarmEnabled != TRUE)
+    while(alarmEnabled == TRUE)
     {
-        //Recieve message
         bytess = read(fd, buf_receive, 1);
         buf_receive[bytess] = '\0';
-        //Process message
         switch (stage)
         {
         case START:

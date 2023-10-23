@@ -11,7 +11,7 @@
 #define BUF_SIZE 256
 
 unsigned char* CtrlPacket(int size, bool start, const char* filename, int *packetSize);
-//unsigned char* DataPacket(int size);
+unsigned char* DataPacket(int size, const unsigned char* data, int *packetSize);
 
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename)
@@ -26,17 +26,18 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     else
         linkLayer.role = LlTx;
 
-    if(llopen(linkLayer) != 0) return;
-
+    if(llopen(linkLayer) == -1) return;
     
     if(linkLayer.role == LlTx)
     {
         FILE *file;
         unsigned char* file_read = NULL;
+        unsigned char* bufPacket;
+        unsigned char* data;
         long int bufSize;
         int packetSize;
-        unsigned char* bufPacket;
         int remain_bytes;
+        int dataSize;
 
         file = fopen(filename, "rb");
         if(file == NULL)
@@ -64,13 +65,26 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             fclose(file);
             exit(1);
         }
-
         bufPacket = CtrlPacket(bufSize, 1, filename, &packetSize);
-        if(llwrite(bufPacket, packetSize) != 0) return;
+        if(llwrite(bufPacket, packetSize) == -1) return;
+        free(bufPacket);
         
         while(remain_bytes > 0)
         {
-            return;
+            unsigned char* bufPacket2;
+            if(remain_bytes > MAX_PAYLOAD_SIZE)
+                dataSize = MAX_PAYLOAD_SIZE;
+            else
+                dataSize = remain_bytes;
+            data = (unsigned char*) malloc(dataSize);
+            if(data == NULL){perror("cringe em espanhol\n"); return;}
+            if(memcpy(data, file_read, dataSize) == NULL){return;}
+            bufPacket2 = DataPacket(dataSize, data, &packetSize);
+            if(llwrite(bufPacket2, packetSize) == -1) return; 
+
+            file_read += dataSize;
+            remain_bytes -= dataSize;
+            free(bufPacket2);
         }
 
         bufPacket = CtrlPacket(bufSize, 0, filename, &packetSize);
@@ -121,9 +135,17 @@ unsigned char* CtrlPacket(int size, bool start, const char* filename, int *packe
     return buf;
 }
 
-/*
-unsigned char* DataPacket(int size)
+unsigned char* DataPacket(int size, const unsigned char* data, int *packetSize)
 {
-    return 'a';
+    unsigned char* packet = (unsigned char*) malloc(*packetSize);
+    if(packet == NULL){perror("malloc on DataPacket failed\n"); return packet;}
+
+    packet[0] = 1;
+    packet[1] = size >> 8 && 0xff;
+    packet[2] = size && 0xff;
+    memcpy(packet + 3, data, size);
+
+    *packetSize = 3 + size;
+
+    return packet;
 }
-*/
