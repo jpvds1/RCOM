@@ -26,6 +26,7 @@
 #define PENDING 6
 #define ACCEPTED 7
 #define REJECTED 8
+#define DESTUFF 9
 
 int fd;
 struct termios oldtio;
@@ -45,12 +46,13 @@ int setup(LinkLayer connectionParameters);
 void alarmHandler(int signal);
 //Message related functions
 int send_SET();
-int send_UA();
+int send_UA(char ctrl);
 //Aux functions
 int ll_open_Tx();
 int ll_open_Rx();
 int send_inf_frame(bool tx, const unsigned char* buf, int bufSize);
 int read_control_frame();
+int stuffing(const unsigned char* buf, int size, unsigned char* newBuf);
 
 ////////////////////////////////////////////////
 // LLOPEN
@@ -106,9 +108,143 @@ int llwrite(const unsigned char *buf, int bufSize)
 ////////////////////////////////////////////////
 int llread(unsigned char *packet)
 {
-    // TODO
+    unsigned char* receive_bytes = (unsigned char*) malloc(MAX_PAYLOAD_SIZE * 2);
+    int stage = START;
+    int adress;
+    int control;
+    alarmCount = 0;
+    int i = 0;
 
-    return 0;
+    while(stage != END)
+    {
+        bytess = read(fd, buf_receive, 1);
+        buf_receive[bytess] = '\0';
+        if(bytess > 0)
+        {
+            //printf("%d", buf_receive[0]);
+            fflush(stdout);
+        }
+        switch (stage)
+        {
+        case START:
+            if(buf_receive[0] == 0x7e)
+            {
+                stage = FLAG;
+                //printf("got flag\n");
+                fflush(stdout);
+            }
+            break;
+
+        case FLAG:
+            if(buf_receive[0] == 0x03)
+            {
+                adress = buf_receive[0];
+                stage = ADRESS;
+                printf("god adress\n");
+                fflush(stdout);
+            }
+            else if(buf_receive[0] == 0x7e);
+            else stage = START;
+            break;
+
+        case ADRESS:
+            if(buf_receive[0] == 0x00)
+            {
+                control = buf_receive[0];
+                one = FALSE;
+                stage = CONTROL;
+                printf("got control zero\n");
+                fflush(stdout);
+            }
+            else if(buf_receive[0] == 0x40)
+            {
+                control = buf_receive[0];
+                one = TRUE;
+                stage = CONTROL;
+                printf("got control one\n");
+                fflush(stdout);
+            }
+            else stage = START;
+            break;
+
+        case CONTROL:
+            if(buf_receive[0] == (adress ^ control))
+            {
+                stage = BCC;
+                printf("got bcc\n");
+                fflush(stdout);
+            }
+            else stage = START;
+            break;
+
+        case BCC:
+            if(buf_receive[0] == 0x7d)
+            {
+                stage = DESTUFF;
+                printf("did a destuffing\n");
+                fflush(stdout);
+            }
+            else if(buf_receive[0] == 0x7e)
+            {
+                stage = END;
+                printf("it ended\n");
+                fflush(stdout);
+            }
+            else
+            {
+                printf("%c", buf_receive[0]);
+                fflush(stdout);
+                receive_bytes[i] = buf_receive[0];
+                i++;
+            }
+            break;
+
+        case DESTUFF:
+            if(buf_receive[0] == 0x5e)
+            {
+                receive_bytes[i] = 0x7e;
+                i++;
+            }
+            else if(buf_receive[0] == 0x5d)
+            {
+                receive_bytes[i] = 0x7d;
+                i++;
+            }
+            stage = BCC;
+            break;
+
+        default:
+            printf("default\n");
+            fflush(stdout);
+            break;
+        }
+    }
+    printf("left\n");
+    fflush(stdout);
+    i--;
+
+    unsigned char bcc2 = receive_bytes[0];
+    for(int j = 1; j < i; j++)
+    {
+        bcc2 ^= receive_bytes[j];
+    }
+    if(bcc2 != receive_bytes[i])
+    {
+        printf("bcc2 wrong\n");
+        fflush(stdout);
+        if(one == TRUE) send_UA(0x81);
+        else send_UA(0x01);
+    }
+    else
+    {
+        printf("bcc right\n");
+        fflush(stdout);
+        if(one == TRUE) send_UA(0x85);
+        else send_UA(0x05);
+    }
+    i--;
+
+    return i;
 }
 
 ////////////////////////////////////////////////
@@ -141,7 +277,7 @@ int setup(LinkLayer connectionParameters) //Setup the connection
     if(connectionParameters.role == LlRx)
     {
         newtio.c_cc[VTIME] = 0;
-        newtio.c_cc[VMIN] = 1;
+        newtio.c_cc[VMIN] = 0;
     }
     else
     {
@@ -170,13 +306,13 @@ int send_SET() //Send SET message from Tx to Rx
     return 0;
 }
 
-int send_UA() //Send UA message from Rx to Tx
+int send_UA(char ctrl) //Send UA message from Rx to Tx
 {
     memset(&buf_send, 0, BUF_SIZE); //Clear sending buffer
 
     buf_send[0] = 0x7e; //Flag = 0x7e
     buf_send[1] = 0x01; //Adress = 0x01
-    buf_send[2] = 0x07; //Control = 0x07
+    buf_send[2] = ctrl; //Control = 0x07
     buf_send[3] = buf_send[1] ^ buf_send[2]; //BCC1 = Adress XOR Control
     buf_send[4] = 0x7e; //Flag = 0x7e
 
@@ -331,7 +467,7 @@ int ll_open_Rx()
         }
     }
 
-    return send_UA();
+    return send_UA(0x07);
 }
 
 int send_inf_frame(bool tx, const unsigned char* buf, int bufSize)
@@ -340,6 +476,8 @@ int send_inf_frame(bool tx, const unsigned char* buf, int bufSize)
     int control;
     int adress;
     int bcc2 = buf[0];
+    unsigned char* stuffedBuf = (unsigned char*) malloc(MAX_PAYLOAD_SIZE * 2);
+    int finalSize;
 
     //Set sender values
     if(tx == 1){adress = 0x03;}
@@ -351,17 +489,36 @@ int send_inf_frame(bool tx, const unsigned char* buf, int bufSize)
     buf_send[1] = adress;
     buf_send[2] = control;
     buf_send[3] = adress ^ control;
-    if(memcpy(buf_send + 4, buf, bufSize) == NULL){return 1;} //Copiar a data para a frame
+    finalSize = stuffing(buf, bufSize, stuffedBuf);
+    if(memcpy(buf_send + 4, stuffedBuf, finalSize) == NULL){return 1;} //Copiar a data para a frame
     
     for(int i = 1; i < bufSize; i++) //Fazer o ^ a todos os bytes dos dados
     {
         bcc2 = bcc2 ^ buf[i];
     }
 
-    buf_send[4 + bufSize] = bcc2;
-    buf_send[5 + bufSize] = 0x7E;
+    if(bcc2 == 0x7e)
+    {
+        buf_send[4 + finalSize] = 0x7d;
+        buf_send[5 + finalSize] = 0x5e;
+        buf_send[6 + finalSize] = 0x7e;
+        finalSize++;
+    }
+    else if(bcc2 == 0x7d)
+    {
+        buf_send[4 + finalSize] = 0x7d;
+        buf_send[5 + finalSize] = 0x5d;
+        buf_send[6 + finalSize] = 0x7e;
+        finalSize++;
+    }
+    else
+    {
+        buf_send[4 + bufSize] = bcc2;
+        buf_send[5 + bufSize] = 0x7E;
+    }
+    
 
-    if(write(fd, buf_send, bufSize+5) < 0){perror("send_Set write failed\n"); return 1;}
+    if(write(fd, buf_send, finalSize+6) < 0){perror("send_Set write failed\n"); return 1;}
 
     return 0;
 }
@@ -373,7 +530,7 @@ int read_control_frame()
     int control;
     int value = PENDING;
 
-    while(alarmEnabled == TRUE)
+    while(alarmEnabled == TRUE && stage != END)
     {
         bytess = read(fd, buf_receive, 1);
         buf_receive[bytess] = '\0';
@@ -382,12 +539,16 @@ int read_control_frame()
         case START:
                 if(buf_receive[0] == 0x7e)
                 {
+                    printf("start\n");
+                    fflush(stdout);
                     stage = FLAG;
                 }
                 break;
 
             case FLAG:
-                if(buf_receive[0] == 0x03)
+                printf("flag\n");
+                fflush(stdout);
+                if(buf_receive[0] == 0x01)
                 {
                     stage = ADRESS;
                     adress = buf_receive[0];
@@ -398,13 +559,15 @@ int read_control_frame()
                 break;
 
             case ADRESS:
-                if(buf_receive[0] == 0x85 && one == 0)
+                printf("adress\n");
+                fflush(stdout);
+                if(buf_receive[0] == 0x85 && one == 1)
                 {
                     stage = CONTROL;
                     control = buf_receive[0];
                     value = ACCEPTED;
                 }
-                else if(buf_receive[0] == 0x05 && one == 1)
+                else if(buf_receive[0] == 0x05 && one == 0)
                 {
                     stage = CONTROL;
                     control = buf_receive[0];
@@ -425,10 +588,16 @@ int read_control_frame()
                 else if(buf_receive[0] == 0x7e)
                     stage = FLAG;
                 else
+                {
+                    printf("went back nigga\n");
+                    fflush(stdout);
                     stage = START;
+                }
                 break;
 
             case CONTROL:
+                printf("control\n");
+                fflush(stdout);
                 if(buf_receive[0] == (adress ^ control))
                     stage = BCC;
                 else if(buf_receive[0] == 0x7e)
@@ -438,8 +607,12 @@ int read_control_frame()
                 break;
 
             case BCC:
+                printf("bcc\n");
+                fflush(stdout);
                 if(buf_receive[0] == 0x7e)
+                {
                     stage = END;
+                }
                 else
                     stage = START;
                 break;
@@ -448,7 +621,37 @@ int read_control_frame()
                 break;
         }
     }
+    printf("value : %d\n",value);
+    fflush(stdout);
 
     if(stage != END){value = PENDING;}
     return value;
+}
+
+int stuffing(const unsigned char* buf, int size, unsigned char* newBuf)
+{
+    int extra = 0;
+
+    for(int i = 0; i < size; i++)
+    {
+        if(buf[i] == 0x7e)
+        {
+            newBuf[i + extra] = 0x7d;
+            extra++;
+            newBuf = realloc(newBuf, size + extra);
+            newBuf[i + extra] =  0x5e;
+        }
+        else if(buf[i] == 0x7d)
+        {
+            extra++;
+            newBuf = realloc(newBuf, size + extra);
+            newBuf[i + extra] =  0x5d;
+        }
+        else
+        {
+            newBuf[i + extra] = buf[i];
+        }
+    }
+
+   return size + extra;
 }

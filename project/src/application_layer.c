@@ -10,8 +10,8 @@
 
 #define BUF_SIZE 256
 
-unsigned char* CtrlPacket(int size, bool start, const char* filename, int *packetSize);
-unsigned char* DataPacket(int size, const unsigned char* data, int *packetSize);
+unsigned char* CtrlPacket(int size, bool start, const char* filename, unsigned long int *packetSize);
+unsigned char* DataPacket(int size, const unsigned char* data, unsigned long int *packetSize);
 
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename)
@@ -35,7 +35,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         unsigned char* bufPacket;
         unsigned char* data;
         long int bufSize;
-        int packetSize;
+        unsigned long int packetSize;
         int remain_bytes;
         int dataSize;
 
@@ -92,14 +92,17 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     }
     else
     {
-        return;
-        //if(llread() != 0) return 1;
+        unsigned long int receivedSize;
+        unsigned char* packetReceived = (unsigned char*) malloc(MAX_PAYLOAD_SIZE);
+        if(packetReceived == NULL){perror("packetReceived malloc\n"); exit(-1);}
+        receivedSize = llread(packetReceived);
+        if(receivedSize < 0) exit(-1);
     }
 }
 
-unsigned char* CtrlPacket(int size, bool start, const char* filename, int *packetSize)
+unsigned char* CtrlPacket(int size, bool start, const char* filename, unsigned long int *packetSize)
 {
-    int v1size =(int) ceil(log2f((float) size / 8.0));
+    unsigned int v1size =(int) ceil(log2f((float) size )/ 8.0);
     int v2size = strlen(filename);
 
     unsigned char* buf = (unsigned char*) malloc(5 + v1size + v2size);
@@ -118,7 +121,7 @@ unsigned char* CtrlPacket(int size, bool start, const char* filename, int *packe
 
     for(int i = 0; i < v1size; i++)
     {
-        buf[3 + i] = size & 0xFF;
+        buf[2 + v1size - i] = size & 0xFF;
         size = size >> 8;
     }
 
@@ -135,7 +138,7 @@ unsigned char* CtrlPacket(int size, bool start, const char* filename, int *packe
     return buf;
 }
 
-unsigned char* DataPacket(int size, const unsigned char* data, int *packetSize)
+unsigned char* DataPacket(int size, const unsigned char* data, unsigned long int *packetSize)
 {
     unsigned char* packet = (unsigned char*) malloc(*packetSize);
     if(packet == NULL){perror("malloc on DataPacket failed\n"); return packet;}
