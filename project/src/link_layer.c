@@ -573,13 +573,13 @@ int read_control_frame()
                     control = buf_receive[0];
                     value = ACCEPTED;
                 }
-                else if(buf_receive[0] == 0x01 && one == 0)
+                else if(buf_receive[0] == 0x01 && one == 1)
                 {
                     stage = CONTROL;
                     control = buf_receive[0];
                     value = REJECTED;
                 }
-                else if(buf_receive[0] == 0x81 && one == 1)
+                else if(buf_receive[0] == 0x81 && one == 0)
                 {
                     stage = CONTROL;
                     control = buf_receive[0];
