@@ -12,6 +12,7 @@
 
 unsigned char* CtrlPacket(int size, bool start, const char* filename, unsigned long int *packetSize);
 unsigned char* DataPacket(int size, const unsigned char* data, unsigned long int *packetSize);
+unsigned char* getData(const unsigned char* data, int size);
 
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename)
@@ -71,8 +72,6 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         
         while(remain_bytes > 0)
         {
-            printf("looped\n");
-            fflush(stdout);
             unsigned char* bufPacket2;
             if(remain_bytes > MAX_PAYLOAD_SIZE)
                 dataSize = MAX_PAYLOAD_SIZE;
@@ -94,51 +93,18 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     }
     else
     {
-        unsigned long int expectedSize = 0;
-        unsigned char* newfilename;
-        int index = 0;
         unsigned long int receivedSize;
         unsigned char* packetReceived = (unsigned char*) malloc(MAX_PAYLOAD_SIZE);
         if(packetReceived == NULL){perror("packetReceived malloc\n"); exit(-1);}
+        FILE *file;
+        file = fopen(filename, "wb");
         while(TRUE)
         {
             receivedSize = llread(packetReceived);
             if(receivedSize < 0) exit(-1);
-            if(packetReceived[0] == 2)
-            {
-                if(packetReceived[1] == 0)
-                {
-                    while(index < packetReceived[2])
-                    {
-                        expectedSize = expectedSize << 8;
-                        expectedSize += packetReceived[3 + index];
-                        index++;
-                    }
-                    newfilename = (unsigned char*) malloc(packetReceived[3+index]);
-                    for(int i = 0; i < packetReceived[3+index]; i++)
-                    {
-                        newfilename[i] = packetReceived[4+index+i];
-                    }
-                }
-                else
-                {
-                    newfilename = (unsigned char*) malloc(packetReceived[2]);
-                    while(index < packetReceived[2])
-                    {
-                        newfilename[index] = packetReceived[3+index];
-                        index++;
-                    }
-                    for(int i = 0; i < packetReceived[3+index]; i++)
-                    {
-                        expectedSize = expectedSize << 8;
-                        expectedSize += packetReceived[4 + index];
-                    }
-                }
-                printf("filename = %s", newfilename);
-                printf("expected size = %ld", expectedSize);
-                fflush(stdout);
-            }
+            if(packetReceived[0] == 2) continue;
             if(packetReceived[0] == 3) break;
+            fwrite(getData(packetReceived, receivedSize), sizeof(unsigned char), receivedSize-2, file);
         }
     }
 }
@@ -194,4 +160,11 @@ unsigned char* DataPacket(int size, const unsigned char* data, unsigned long int
     *packetSize = 3 + size;
 
     return packet;
+}
+
+unsigned char* getData(const unsigned char* data, int size)
+{
+    unsigned char* parsedData = (unsigned char*) malloc(size-2);
+    memcpy(parsedData, data+3, size-2);
+    return parsedData;
 }

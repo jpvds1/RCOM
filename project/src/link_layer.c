@@ -52,7 +52,7 @@ int ll_open_Tx();
 int ll_open_Rx();
 int send_inf_frame(bool tx, const unsigned char* buf, int bufSize);
 int read_control_frame();
-int stuffing(const unsigned char* buf, int size, unsigned char* newBuf);
+int stuffing(const unsigned char* buf, int size, unsigned char* newBuf, char bcc2);
 
 ////////////////////////////////////////////////
 // LLOPEN
@@ -119,19 +119,12 @@ int llread(unsigned char *packet)
     {
         bytess = read(fd, buf_receive, 1);
         buf_receive[bytess] = '\0';
-        if(bytess > 0)
-        {
-            //printf("%d", buf_receive[0]);
-            fflush(stdout);
-        }
         switch (stage)
         {
         case START:
             if(buf_receive[0] == 0x7e)
             {
                 stage = FLAG;
-                //printf("got flag\n");
-                fflush(stdout);
             }
             break;
 
@@ -140,8 +133,6 @@ int llread(unsigned char *packet)
             {
                 adress = buf_receive[0];
                 stage = ADRESS;
-                printf("god adress\n");
-                fflush(stdout);
             }
             else if(buf_receive[0] == 0x7e);
             else stage = START;
@@ -153,16 +144,12 @@ int llread(unsigned char *packet)
                 control = buf_receive[0];
                 one = FALSE;
                 stage = CONTROL;
-                printf("got control zero\n");
-                fflush(stdout);
             }
             else if(buf_receive[0] == 0x40)
             {
                 control = buf_receive[0];
                 one = TRUE;
                 stage = CONTROL;
-                printf("got control one\n");
-                fflush(stdout);
             }
             else stage = START;
             break;
@@ -171,8 +158,6 @@ int llread(unsigned char *packet)
             if(buf_receive[0] == (adress ^ control))
             {
                 stage = BCC;
-                printf("got bcc\n");
-                fflush(stdout);
             }
             else stage = START;
             break;
@@ -181,19 +166,13 @@ int llread(unsigned char *packet)
             if(buf_receive[0] == 0x7d)
             {
                 stage = DESTUFF;
-                printf("did a destuffing\n");
-                fflush(stdout);
             }
             else if(buf_receive[0] == 0x7e)
             {
                 stage = END;
-                printf("it ended\n");
-                fflush(stdout);
             }
             else
             {
-                printf("%c", buf_receive[0]);
-                fflush(stdout);
                 receive_bytes[i] = buf_receive[0];
                 i++;
             }
@@ -214,13 +193,9 @@ int llread(unsigned char *packet)
             break;
 
         default:
-            printf("default\n");
-            fflush(stdout);
             break;
         }
     }
-    printf("left\n");
-    fflush(stdout);
     i--;
 
     unsigned char bcc2 = receive_bytes[0];
@@ -230,18 +205,17 @@ int llread(unsigned char *packet)
     }
     if(bcc2 != receive_bytes[i])
     {
-        printf("bcc2 wrong\n");
-        fflush(stdout);
         if(one == TRUE) send_UA(0x81);
         else send_UA(0x01);
     }
     else
     {
-        printf("bcc right\n");
-        fflush(stdout);
         if(one == TRUE) send_UA(0x85);
         else send_UA(0x05);
     }
+
+    memcpy(packet, receive_bytes, i);
+
     i--;
 
     return i;
@@ -476,7 +450,7 @@ int send_inf_frame(bool tx, const unsigned char* buf, int bufSize)
     int control;
     int adress;
     int bcc2 = buf[0];
-    unsigned char* stuffedBuf = (unsigned char*) malloc(MAX_PAYLOAD_SIZE * 2);
+    unsigned char* stuffedBuf = (unsigned char*) malloc(bufSize);
     int finalSize;
 
     //Set sender values
@@ -489,36 +463,18 @@ int send_inf_frame(bool tx, const unsigned char* buf, int bufSize)
     buf_send[1] = adress;
     buf_send[2] = control;
     buf_send[3] = adress ^ control;
-    finalSize = stuffing(buf, bufSize, stuffedBuf);
-    if(memcpy(buf_send + 4, stuffedBuf, finalSize) == NULL){return 1;} //Copiar a data para a frame
-    
+
     for(int i = 1; i < bufSize; i++) //Fazer o ^ a todos os bytes dos dados
     {
         bcc2 = bcc2 ^ buf[i];
     }
 
-    if(bcc2 == 0x7e)
-    {
-        buf_send[4 + finalSize] = 0x7d;
-        buf_send[5 + finalSize] = 0x5e;
-        buf_send[6 + finalSize] = 0x7e;
-        finalSize++;
-    }
-    else if(bcc2 == 0x7d)
-    {
-        buf_send[4 + finalSize] = 0x7d;
-        buf_send[5 + finalSize] = 0x5d;
-        buf_send[6 + finalSize] = 0x7e;
-        finalSize++;
-    }
-    else
-    {
-        buf_send[4 + bufSize] = bcc2;
-        buf_send[5 + bufSize] = 0x7E;
-    }
-    
+    finalSize = stuffing(buf, bufSize, stuffedBuf, bcc2);
+    if(memcpy(buf_send + 4, stuffedBuf, finalSize) == NULL){return 1;} //Copiar a data para a frame
 
-    if(write(fd, buf_send, finalSize+6) < 0){perror("send_Set write failed\n"); return 1;}
+    buf_send[finalSize+4] = 0x7e;
+
+    if(write(fd, buf_send, finalSize+5) < 0){perror("send_Set write failed\n"); return 1;}
 
     return 0;
 }
@@ -539,15 +495,11 @@ int read_control_frame()
         case START:
                 if(buf_receive[0] == 0x7e)
                 {
-                    printf("start\n");
-                    fflush(stdout);
                     stage = FLAG;
                 }
                 break;
 
             case FLAG:
-                printf("flag\n");
-                fflush(stdout);
                 if(buf_receive[0] == 0x01)
                 {
                     stage = ADRESS;
@@ -559,8 +511,6 @@ int read_control_frame()
                 break;
 
             case ADRESS:
-                printf("adress\n");
-                fflush(stdout);
                 if(buf_receive[0] == 0x85 && one == 1)
                 {
                     stage = CONTROL;
@@ -573,13 +523,13 @@ int read_control_frame()
                     control = buf_receive[0];
                     value = ACCEPTED;
                 }
-                else if(buf_receive[0] == 0x01 && one == 1)
+                else if(buf_receive[0] == 0x01 && one == 0)
                 {
                     stage = CONTROL;
                     control = buf_receive[0];
                     value = REJECTED;
                 }
-                else if(buf_receive[0] == 0x81 && one == 0)
+                else if(buf_receive[0] == 0x81 && one == 1)
                 {
                     stage = CONTROL;
                     control = buf_receive[0];
@@ -589,17 +539,15 @@ int read_control_frame()
                     stage = FLAG;
                 else
                 {
-                    printf("went back nigga\n");
-                    fflush(stdout);
                     stage = START;
                 }
                 break;
 
             case CONTROL:
-                printf("control\n");
-                fflush(stdout);
                 if(buf_receive[0] == (adress ^ control))
+                {
                     stage = BCC;
+                }
                 else if(buf_receive[0] == 0x7e)
                     stage = FLAG;
                 else
@@ -607,8 +555,6 @@ int read_control_frame()
                 break;
 
             case BCC:
-                printf("bcc\n");
-                fflush(stdout);
                 if(buf_receive[0] == 0x7e)
                 {
                     stage = END;
@@ -621,14 +567,12 @@ int read_control_frame()
                 break;
         }
     }
-    printf("value : %d\n",value);
-    fflush(stdout);
 
     if(stage != END){value = PENDING;}
     return value;
 }
 
-int stuffing(const unsigned char* buf, int size, unsigned char* newBuf)
+int stuffing(const unsigned char* buf, int size, unsigned char* newBuf, char bcc2)
 {
     int extra = 0;
 
@@ -643,6 +587,7 @@ int stuffing(const unsigned char* buf, int size, unsigned char* newBuf)
         }
         else if(buf[i] == 0x7d)
         {
+            newBuf[i + extra] = 0x7d;
             extra++;
             newBuf = realloc(newBuf, size + extra);
             newBuf[i + extra] =  0x5d;
@@ -651,6 +596,27 @@ int stuffing(const unsigned char* buf, int size, unsigned char* newBuf)
         {
             newBuf[i + extra] = buf[i];
         }
+    }
+
+    if(bcc2 == 0x7d)
+    {
+        extra += 2;
+        newBuf = realloc(newBuf, size + extra);
+        newBuf[size + extra - 2] = 0x7d;
+        newBuf[size + extra - 1] = 0x5d;
+    }
+    else if(bcc2 == 0x7e)
+    {
+        extra += 2;
+        newBuf = realloc(newBuf, size + extra);
+        newBuf[size + extra - 2] = 0x7d;
+        newBuf[size + extra - 1] = 0x5e;
+    }
+    else
+    {
+        extra++;
+        newBuf = realloc(newBuf, size + extra);
+        newBuf[size + extra - 1] = bcc2;
     }
 
    return size + extra;
