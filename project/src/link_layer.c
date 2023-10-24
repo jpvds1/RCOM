@@ -40,6 +40,7 @@ int STOP = FALSE;
 int retries;
 int timeout;
 bool one = FALSE;
+bool ttx;
 
 //Setup Functions
 int setup(LinkLayer connectionParameters);
@@ -50,6 +51,8 @@ int send_UA(char ctrl);
 //Aux functions
 int ll_open_Tx();
 int ll_open_Rx();
+int ll_close_Tx();
+int ll_close_Rx();
 int send_inf_frame(bool tx, const unsigned char* buf, int bufSize);
 int read_control_frame();
 int stuffing(const unsigned char* buf, int size, unsigned char* newBuf, char bcc2);
@@ -96,10 +99,11 @@ int llwrite(const unsigned char *buf, int bufSize)
         result = read_control_frame(); //State machine
         if(result == REJECTED){alarmCount = 0;} //Se for rejected da reset as tries
     }
+    alarm(0);
 
     one = !one; //Mudar o numero da proxima frame
 
-    //if(result != ACCEPTED){return -1;}
+    if(result != ACCEPTED){return -1;}
     return bufSize;
 }
 
@@ -226,7 +230,14 @@ int llread(unsigned char *packet)
 ////////////////////////////////////////////////
 int llclose(int showStatistics)
 {
-    // TODO
+    if(ttx == TRUE)
+    {
+
+    }
+    else
+    {
+
+    }
 
     return 1;
 }
@@ -250,11 +261,13 @@ int setup(LinkLayer connectionParameters) //Setup the connection
     newtio.c_lflag = 0;
     if(connectionParameters.role == LlRx)
     {
+        ttx = FALSE;
         newtio.c_cc[VTIME] = 0;
         newtio.c_cc[VMIN] = 0;
     }
     else
     {
+        ttx = TRUE;
         newtio.c_cc[VTIME] = 0;
         newtio.c_cc[VMIN] = 0;
     }
@@ -308,7 +321,7 @@ int ll_open_Tx()
     int adress;
     int control;
     alarmCount = 0;
-    //alarm(0);
+    alarm(0);
     send_SET();
     alarm(timeout);
     

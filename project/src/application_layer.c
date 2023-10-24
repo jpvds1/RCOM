@@ -107,6 +107,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             fwrite(getData(packetReceived, receivedSize), sizeof(unsigned char), receivedSize-2, file);
         }
     }
+    if(llclose(0) < 0) exit(-1);
 }
 
 unsigned char* CtrlPacket(int size, bool start, const char* filename, unsigned long int *packetSize)
