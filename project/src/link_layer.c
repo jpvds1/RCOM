@@ -130,6 +130,7 @@ int llread(unsigned char *packet)
     alarmCount = 0;
     int i = 0;
     bool wrong = FALSE;
+    bool SET = FALSE;
 
     while(stage != END)
     {
@@ -141,7 +142,14 @@ int llread(unsigned char *packet)
         case START:
             if(buf_receive[0] == 0x7e)
             {
-                stage = FLAG;
+                if(SET == TRUE)
+                {
+                    stage = END;
+                }
+                else
+                {
+                    stage = FLAG;
+                }
             }
             break;
 
@@ -156,7 +164,12 @@ int llread(unsigned char *packet)
             break;
 
         case ADRESS:
-            if(buf_receive[0] == 0x00)
+            if(buf_receive[0] == 0x03)
+            {
+                SET = TRUE;
+                stage = CONTROL;
+            }
+            else if(buf_receive[0] == 0x00)
             {
                 control = buf_receive[0];
                 if(one == TRUE)
@@ -184,7 +197,11 @@ int llread(unsigned char *packet)
             break;
 
         case CONTROL:
-            if(buf_receive[0] == (adress ^ control))
+            if(SET == TRUE && buf_receive[0] == (adress ^ control))
+            {   
+                stage = START;
+            }
+            else if(buf_receive[0] == (adress ^ control))
             {
                 stage = BCC;
             }
