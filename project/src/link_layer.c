@@ -13,7 +13,7 @@
 #include <stdbool.h>
 
 // MISC
-#define _POSIX_SOURCE 1 // POSIX compliant source
+#define _POSIX_SOURCE 1
 #define BUF_SIZE 256
 
 //States (state machine)
@@ -73,15 +73,16 @@ int llopen(LinkLayer connectionParameters)
 {
     fd = setup(connectionParameters);
 
-    if(fd < 0) return -1;
+    if(fd < 0){perror("fd < 0"); exit(-1);}
 
+    //Call the relevant aux functions depending on the role
     if(connectionParameters.role == LlTx)
     {
-        if(ll_open_Tx()) return -1;
+        if(ll_open_Tx()){perror("ll_open_tx fail"); exit(-1);}
     }
     else
     {
-        if(ll_open_Rx()) return -1;
+        if(ll_open_Rx()){perror("ll_open_rx fail"); exit(-1);}
     }
 
     return fd;
@@ -92,25 +93,25 @@ int llopen(LinkLayer connectionParameters)
 ////////////////////////////////////////////////
 int llwrite(const unsigned char *buf, int bufSize)
 {
-    //Iniciar variaveis
+    //Reset alarm and set message result to pending
     alarm(0);
-    int result = PENDING; //resultado da leitura
-    alarmCount = 0;       //Pending = Não recebeu mensagem antes do alarme acionar
-                          //Rejected = Recebeu a mensagem de REJ
-                          //Accepted = Recebeu a mensagem de RR  
+    int result = PENDING; //result of read funtions
+    alarmCount = 0;       //Pending = Still awaiting for a message
+                          //Rejected = Got a REJ message
+                          //Accepted = Got any type of confirmation message (ex: RR)
 
-    //loop para enviar inf frame e esperar pela mensagem
+    //Sends an information frame until a confirmation message is recieved or the limit of time outs is exceded
     while(alarmCount < retries && result != ACCEPTED)
     {
         send_inf_frame(1, buf, bufSize);
         alarm(timeout);
         alarmEnabled = TRUE;
         result = read_control_frame(); //State machine
-        if(result == REJECTED){alarmCount = 0;} //Se for rejected da reset as tries
+        if(result == REJECTED){alarmCount = 0;} //If a rejection message is recieved, the number of time outs is reseted
     }
     alarm(0);
 
-    one = !one; //Mudar o numero da proxima frame
+    one = !one; //Change the one value for the frame to come
 
     if(result != ACCEPTED){return -1;}
     return bufSize;
@@ -130,6 +131,7 @@ int llread(unsigned char *packet)
 
     while(stage != END)
     {
+        //Read byte
         bytess = read(fd, buf_receive, 1);
         buf_receive[bytess] = '\0';
         switch (stage)
@@ -176,11 +178,11 @@ int llread(unsigned char *packet)
             break;
 
         case BCC:
-            if(buf_receive[0] == 0x7d)
+            if(buf_receive[0] == 0x7d) //If the destuff flag appears, treat it in the next loop
             {
                 stage = DESTUFF;
             }
-            else if(buf_receive[0] == 0x7e)
+            else if(buf_receive[0] == 0x7e) //0x7e is the end flag
             {
                 stage = END;
             }
@@ -192,7 +194,7 @@ int llread(unsigned char *packet)
             break;
 
         case DESTUFF:
-            if(buf_receive[0] == 0x5e)
+            if(buf_receive[0] == 0x5e) //Destuffing
             {
                 receive_bytes[i] = 0x7e;
                 i++;
@@ -209,13 +211,17 @@ int llread(unsigned char *packet)
             break;
         }
     }
+    //i points to bcc2, by doing i-- it now points to the last byte of data
     i--;
 
+    //calculate the bcc2
     unsigned char bcc2 = receive_bytes[0];
     for(int j = 1; j < i; j++)
     {
         bcc2 ^= receive_bytes[j];
     }
+
+    //check if the bcc2 is correct and send the respective message
     if(bcc2 != receive_bytes[i])
     {
         if(one == TRUE) send_SU(0x01, 0X81);
@@ -227,7 +233,8 @@ int llread(unsigned char *packet)
         else send_SU(0x01, 0X05);
     }
 
-    memcpy(packet, receive_bytes, i);
+    //copy the data bytes to the packet
+    if(memcpy(packet, receive_bytes, i) == NULL){perror("llread memcpy fail"); exit(-1);}
     free(receive_bytes);
 
     i--;
@@ -240,6 +247,7 @@ int llread(unsigned char *packet)
 ////////////////////////////////////////////////
 int llclose(int showStatistics)
 {
+    //Call the relevant aux functions depending on the role
     if(ttx == TRUE)
     {
         return ll_close_Tx();
@@ -262,8 +270,8 @@ int setup(LinkLayer connectionParameters) //Setup the connection
 
     fd = open(connectionParameters.serialPort, O_RDWR | O_NOCTTY);
 
-    if (fd < 0){perror(connectionParameters.serialPort); return 1;}
-    if(tcgetattr(fd, &oldtio) == -1){perror("tcgetattr"); return 1;}
+    if (fd < 0){perror(connectionParameters.serialPort); exit(-1);}
+    if(tcgetattr(fd, &oldtio) == -1){perror("tcgetattr"); exit(-1);}
 
     memset(&newtio, 0, sizeof(newtio));
     newtio.c_cflag = connectionParameters.baudRate | CS8 | CLOCAL | CREAD;
@@ -284,7 +292,7 @@ int setup(LinkLayer connectionParameters) //Setup the connection
     }
     tcflush(fd, TCIOFLUSH);
 
-    if (tcsetattr(fd, TCSANOW, &newtio) == -1){perror("tcsetattr"); return 1;}
+    if (tcsetattr(fd, TCSANOW, &newtio) == -1){perror("tcsetattr"); exit(-1);}
     
     return fd;
 }
@@ -303,19 +311,19 @@ int send_SU( char adress, char ctrl) //Send UA message from Rx to Tx
     memset(&buf_send, 0, BUF_SIZE); //Clear sending buffer
 
     buf_send[0] = 0x7e; //Flag = 0x7e
-    buf_send[1] = adress; //Adress = 0x01
-    buf_send[2] = ctrl; //Control = 0x07
+    buf_send[1] = adress; //Adress = 0x03 || 0x01
+    buf_send[2] = ctrl; //Control = 0x03 || 0x07 || 0x05 || 0x85 || 0x01 || 0x81 || 0x0B
     buf_send[3] = buf_send[1] ^ buf_send[2]; //BCC1 = Adress XOR Control
     buf_send[4] = 0x7e; //Flag = 0x7e
 
-    if(write(fd, buf_send, 5) < 0){perror("send_SU write failed\n"); return 1;}
+    if(write(fd, buf_send, 5) < 0){perror("send_SU write failed\n"); exit(-1);}
 
     return 0;
 }
 
 int send_inf_frame(bool tx, const unsigned char* buf, int bufSize)
 {
-    //Iniciar variaveis
+    //set vatiables
     int control;
     int adress;
     int bcc2 = buf[0];
@@ -328,23 +336,27 @@ int send_inf_frame(bool tx, const unsigned char* buf, int bufSize)
     if(one == 1){control = 0x40;}
     else {control = 0x00;}
 
+    //Set buf_send
     buf_send[0] = 0x7E;
     buf_send[1] = adress;
     buf_send[2] = control;
     buf_send[3] = adress ^ control;
 
-    for(int i = 1; i < bufSize; i++) //Fazer o ^ a todos os bytes dos dados
+    //Calculate bcc2
+    for(int i = 1; i < bufSize; i++)
     {
         bcc2 = bcc2 ^ buf[i];
     }
 
+    //Stuff the data
     finalSize = stuffing(buf, bufSize, stuffedBuf, bcc2);
-    if(memcpy(buf_send + 4, stuffedBuf, finalSize) == NULL){free(stuffedBuf); return 1;} //Copiar a data para a frame
+    if(memcpy(buf_send + 4, stuffedBuf, finalSize) == NULL){perror("send_inf_frame memcpy fail"); free(stuffedBuf); exit(-1);}
     //free(stuffedBuf);
 
+    //Add the final flag
     buf_send[finalSize+4] = 0x7e;
 
-    if(write(fd, buf_send, finalSize+5) < 0){perror("send_Set write failed\n"); return 1;}
+    if(write(fd, buf_send, finalSize+5) < 0){perror("send_Set write failed\n"); exit(-1);}
 
     return 0;
 }
@@ -525,10 +537,12 @@ int read_SU_frame(char adress, char ctrl)
 ////////////////////////////////////////////////
 int ll_open_Tx()
 {
+    //restart the alarm variables and set to pending response
     alarmCount = 0;
     int result = PENDING;
     alarm(0);
     
+    //sends an initial message, then waits until either recieves a message or times out
     while(alarmCount < retries && result != ACCEPTED)
     {
         send_SU(0x03, 0x03);
@@ -542,11 +556,11 @@ int ll_open_Tx()
 }
 
 int ll_open_Rx()
-{
-    alarmCount = 0;
-    
+{    
+    //waits indefinitely to read the SET message
     read_SU_frame(0x03, 0x03);
 
+    //sends the UA message back
     return send_SU(0x01, 0X07);
 }
 
@@ -598,6 +612,7 @@ int stuffing(const unsigned char* buf, int size, unsigned char* newBuf, char bcc
 {
     int extra = 0;
 
+    //Iterate through every byte to check for stuffing needs
     for(int i = 0; i < size; i++)
     {
         if(buf[i] == 0x7e)
@@ -620,6 +635,7 @@ int stuffing(const unsigned char* buf, int size, unsigned char* newBuf, char bcc
         }
     }
 
+    //Stuff the bcc2 if necessary
     if(bcc2 == 0x7d)
     {
         extra += 2;

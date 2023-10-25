@@ -17,6 +17,7 @@ unsigned char* getData(const unsigned char* data, int size);
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename)
 {
+    //Create the LinkLayer
     LinkLayer linkLayer;
     strcpy(linkLayer.serialPort, serialPort);
     linkLayer.baudRate = baudRate;
@@ -48,6 +49,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             exit(1);
         }
 
+        //Get the size of the file
         fseek(file, 0L, SEEK_END);
         bufSize = ftell(file);
         fseek(file, 0L, SEEK_SET);
@@ -60,6 +62,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         }
         remain_bytes = bufSize;
 
+        //Read the file
         if(fread(file_read, sizeof(unsigned char), bufSize, file) != bufSize)
         {
             perror("fread failed");
@@ -67,27 +70,34 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             fclose(file);
             exit(1);
         }
+
+        //Send the first Control Packet
         bufPacket = CtrlPacket(bufSize, 1, filename, &packetSize);
         if(llwrite(bufPacket, packetSize) == -1) return;
         free(bufPacket);
         
         while(remain_bytes > 0)
         {
+            //Check the size to be sent
             if(remain_bytes > MAX_PAYLOAD_SIZE)
                 dataSize = MAX_PAYLOAD_SIZE;
             else
                 dataSize = remain_bytes;
             data = (unsigned char*) malloc(dataSize);
             if(data == NULL){perror("data malloc failed\n"); return;}
+
+            //Send the Data Packet
             if(memcpy(data, file_read + index, dataSize) == NULL){return;}
             bufPacket = DataPacket(dataSize, data, &packetSize);
             if(llwrite(bufPacket, packetSize) == -1) return; 
 
+            //Update the relevant variables
             index += dataSize;
             remain_bytes -= dataSize;
             free(bufPacket);
         }
 
+        //Send the end Control Packet
         bufPacket = CtrlPacket(bufSize, 0, filename, &packetSize);
         if(llwrite(bufPacket, packetSize) < 0) return;
         free(bufPacket);
@@ -99,14 +109,17 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         unsigned long int receivedSize;
         unsigned char* packetReceived = (unsigned char*) malloc(MAX_PAYLOAD_SIZE);
         if(packetReceived == NULL){perror("packetReceived malloc\n"); exit(-1);}
+
+        //Open a file to write
         FILE *file;
         file = fopen(filename, "wb");
         while(TRUE)
         {
+            //If its a Data Packet, write to the file
             receivedSize = llread(packetReceived);
             if(receivedSize < 0) {free(packetReceived); exit(-1);}
-            if(packetReceived[0] == 2) continue;
-            if(packetReceived[0] == 3) break;
+            if(packetReceived[0] == 2) continue; //First Control Packet
+            if(packetReceived[0] == 3) break; //Last Control Packet
             fwrite(getData(packetReceived, receivedSize), sizeof(unsigned char), receivedSize-2, file);
         }
         free(packetReceived);
@@ -116,11 +129,13 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
 
 unsigned char* CtrlPacket(int size, bool start, const char* filename, unsigned long int *packetSize)
 {
+    //Calculate L1 and L2
     unsigned int v1size =(int) ceil(log2f((float) size )/ 8.0);
     int v2size = strlen(filename);
 
     unsigned char* buf = (unsigned char*) malloc(5 + v1size + v2size);
 
+    //Set the Packet Header
     if(start == 1)
     {
         buf[0] = 2;
@@ -157,6 +172,7 @@ unsigned char* DataPacket(int size, const unsigned char* data, unsigned long int
     unsigned char* packet = (unsigned char*) malloc(*packetSize);
     if(packet == NULL){perror("malloc on DataPacket failed\n"); return packet;}
 
+    //Add the Packet Header for Data Packets
     packet[0] = 1;
     packet[1] = size >> 8 && 0xff;
     packet[2] = size && 0xff;
@@ -169,6 +185,7 @@ unsigned char* DataPacket(int size, const unsigned char* data, unsigned long int
 
 unsigned char* getData(const unsigned char* data, int size)
 {
+    //Remove the packet header
     unsigned char* parsedData = (unsigned char*) malloc(size-2);
     memcpy(parsedData, data+3, size-2);
     return parsedData;
