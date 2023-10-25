@@ -28,7 +28,8 @@ enum States
     PENDING,
     ACCEPTED,
     REJECTED,
-    DESTUFF
+    DESTUFF,
+    DISCARD
 };
 
 //Connection variables
@@ -128,6 +129,7 @@ int llread(unsigned char *packet)
     int control;
     alarmCount = 0;
     int i = 0;
+    bool wrong = FALSE;
 
     while(stage != END)
     {
@@ -157,14 +159,26 @@ int llread(unsigned char *packet)
             if(buf_receive[0] == 0x00)
             {
                 control = buf_receive[0];
-                one = FALSE;
-                stage = CONTROL;
+                if(one == TRUE)
+                {
+                    stage = DISCARD;
+                }
+                else
+                {
+                    stage = CONTROL;
+                }
             }
             else if(buf_receive[0] == 0x40)
             {
                 control = buf_receive[0];
-                one = TRUE;
-                stage = CONTROL;
+                if(one == FALSE)
+                {
+                    stage = DISCARD;
+                }
+                else
+                {
+                    stage = CONTROL;
+                }
             }
             else stage = START;
             break;
@@ -174,7 +188,11 @@ int llread(unsigned char *packet)
             {
                 stage = BCC;
             }
-            else stage = START;
+            else
+            {
+                stage = DISCARD;
+                wrong = TRUE;
+            }
             break;
 
         case BCC:
@@ -207,6 +225,13 @@ int llread(unsigned char *packet)
             stage = BCC;
             break;
 
+        case DISCARD:
+            if(buf_receive[0] == 0x7e)
+            {
+                stage = END;
+            }
+            break;
+
         default:
             break;
         }
@@ -221,16 +246,17 @@ int llread(unsigned char *packet)
         bcc2 ^= receive_bytes[j];
     }
 
+    one = !one;
     //check if the bcc2 is correct and send the respective message
-    if(bcc2 != receive_bytes[i])
+    if(bcc2 != receive_bytes[i] && wrong == TRUE)
     {
-        if(one == TRUE) send_SU(0x01, 0X81);
-        else send_SU(0x01, 0x01);
+        if(one == TRUE) {send_SU(0x01, 0X81);}
+        else {send_SU(0x01, 0x01);}
     }
     else
     {
-        if(one == TRUE) send_SU(0x01, 0X85);
-        else send_SU(0x01, 0X05);
+        if(one == TRUE) {send_SU(0x01, 0X85);}
+        else {send_SU(0x01, 0X05);}
     }
 
     //copy the data bytes to the packet
@@ -396,25 +422,25 @@ int read_control_frame()
                 break;
 
             case ADRESS:
-                if(buf_receive[0] == 0x85 && one == 1)
+                if(buf_receive[0] == 0x85 && one == 0)
                 {
                     stage = CONTROL;
                     control = buf_receive[0];
                     value = ACCEPTED;
                 }
-                else if(buf_receive[0] == 0x05 && one == 0)
+                else if(buf_receive[0] == 0x05 && one == 1)
                 {
                     stage = CONTROL;
                     control = buf_receive[0];
                     value = ACCEPTED;
                 }
-                else if(buf_receive[0] == 0x01 && one == 0)
+                else if(buf_receive[0] == 0x01 && one == 1)
                 {
                     stage = CONTROL;
                     control = buf_receive[0];
                     value = REJECTED;
                 }
-                else if(buf_receive[0] == 0x81 && one == 1)
+                else if(buf_receive[0] == 0x81 && one == 0)
                 {
                     stage = CONTROL;
                     control = buf_receive[0];
