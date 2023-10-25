@@ -39,6 +39,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         unsigned long int packetSize;
         int remain_bytes;
         int dataSize;
+        int index = 0;
 
         file = fopen(filename, "rb");
         if(file == NULL)
@@ -72,24 +73,26 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         
         while(remain_bytes > 0)
         {
-            unsigned char* bufPacket2;
             if(remain_bytes > MAX_PAYLOAD_SIZE)
                 dataSize = MAX_PAYLOAD_SIZE;
             else
                 dataSize = remain_bytes;
             data = (unsigned char*) malloc(dataSize);
-            if(data == NULL){perror("cringe em espanhol\n"); return;}
-            if(memcpy(data, file_read, dataSize) == NULL){return;}
-            bufPacket2 = DataPacket(dataSize, data, &packetSize);
-            if(llwrite(bufPacket2, packetSize) == -1) return; 
+            if(data == NULL){perror("data malloc failed\n"); return;}
+            if(memcpy(data, file_read + index, dataSize) == NULL){return;}
+            bufPacket = DataPacket(dataSize, data, &packetSize);
+            if(llwrite(bufPacket, packetSize) == -1) return; 
 
-            file_read += dataSize;
+            index += dataSize;
             remain_bytes -= dataSize;
-            free(bufPacket2);
+            free(bufPacket);
         }
 
         bufPacket = CtrlPacket(bufSize, 0, filename, &packetSize);
         if(llwrite(bufPacket, packetSize) != 0) return;
+        free(bufPacket);
+        free(file_read);
+        free(data);
     }
     else
     {
@@ -101,11 +104,12 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         while(TRUE)
         {
             receivedSize = llread(packetReceived);
-            if(receivedSize < 0) exit(-1);
+            //if(receivedSize < 0) {free(packetReceived); exit(-1);}
             if(packetReceived[0] == 2) continue;
             if(packetReceived[0] == 3) break;
             fwrite(getData(packetReceived, receivedSize), sizeof(unsigned char), receivedSize-2, file);
         }
+        //free(packetReceived);
     }
     if(llclose(0) < 0) exit(-1);
 }

@@ -219,6 +219,7 @@ int llread(unsigned char *packet)
     }
 
     memcpy(packet, receive_bytes, i);
+    free(receive_bytes);
 
     i--;
 
@@ -483,7 +484,8 @@ int send_inf_frame(bool tx, const unsigned char* buf, int bufSize)
     }
 
     finalSize = stuffing(buf, bufSize, stuffedBuf, bcc2);
-    if(memcpy(buf_send + 4, stuffedBuf, finalSize) == NULL){return 1;} //Copiar a data para a frame
+    if(memcpy(buf_send + 4, stuffedBuf, finalSize) == NULL){free(stuffedBuf); return 1;} //Copiar a data para a frame
+    //free(stuffedBuf);
 
     buf_send[finalSize+4] = 0x7e;
 
@@ -632,5 +634,5 @@ int stuffing(const unsigned char* buf, int size, unsigned char* newBuf, char bcc
         newBuf[size + extra - 1] = bcc2;
     }
 
-   return size + extra;
+    return size + extra;
 }
