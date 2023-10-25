@@ -263,15 +263,16 @@ int llread(unsigned char *packet)
         bcc2 ^= receive_bytes[j];
     }
 
-    one = !one;
+    
     //check if the bcc2 is correct and send the respective message
     if(bcc2 != receive_bytes[i] && wrong == TRUE)
     {
-        if(one == TRUE) {send_SU(0x01, 0X81);}
-        else {send_SU(0x01, 0x01);}
+        if(one == TRUE) {send_SU(0x01, 0X01);}
+        else {send_SU(0x01, 0x81);}
     }
     else
     {
+        one = !one;
         if(one == TRUE) {send_SU(0x01, 0X85);}
         else {send_SU(0x01, 0X05);}
     }
@@ -593,6 +594,7 @@ int ll_open_Tx()
         alarmEnabled = TRUE;
         result = read_SU_frame(0x01, 0x07);
     }
+    alarm(0);
 
     if(result == ACCEPTED) return 0;
     return -1;
@@ -646,6 +648,7 @@ int ll_close_Rx()
         alarmEnabled = TRUE;
         result = read_SU_frame(0x03, 0x07);
     }
+    alarm(0);
 
     if(result != ACCEPTED) return -1;
     return 0;
