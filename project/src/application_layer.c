@@ -89,7 +89,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         }
 
         bufPacket = CtrlPacket(bufSize, 0, filename, &packetSize);
-        if(llwrite(bufPacket, packetSize) != 0) return;
+        if(llwrite(bufPacket, packetSize) < 0) return;
         free(bufPacket);
         free(file_read);
         free(data);
@@ -104,12 +104,12 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         while(TRUE)
         {
             receivedSize = llread(packetReceived);
-            //if(receivedSize < 0) {free(packetReceived); exit(-1);}
+            if(receivedSize < 0) {free(packetReceived); exit(-1);}
             if(packetReceived[0] == 2) continue;
             if(packetReceived[0] == 3) break;
             fwrite(getData(packetReceived, receivedSize), sizeof(unsigned char), receivedSize-2, file);
         }
-        //free(packetReceived);
+        free(packetReceived);
     }
     if(llclose(0) < 0) exit(-1);
 }

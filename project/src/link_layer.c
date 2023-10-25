@@ -46,8 +46,7 @@ bool ttx;
 int setup(LinkLayer connectionParameters);
 void alarmHandler(int signal);
 //Message related functions
-int send_SET();
-int send_UA(char ctrl);
+int send_SU(char adress, char ctrl);
 //Aux functions
 int ll_open_Tx();
 int ll_open_Rx();
@@ -55,6 +54,7 @@ int ll_close_Tx();
 int ll_close_Rx();
 int send_inf_frame(bool tx, const unsigned char* buf, int bufSize);
 int read_control_frame();
+int read_SU_frame(char adress, char ctrl);
 int stuffing(const unsigned char* buf, int size, unsigned char* newBuf, char bcc2);
 
 ////////////////////////////////////////////////
@@ -209,13 +209,13 @@ int llread(unsigned char *packet)
     }
     if(bcc2 != receive_bytes[i])
     {
-        if(one == TRUE) send_UA(0x81);
-        else send_UA(0x01);
+        if(one == TRUE) send_SU(0x01, 0X81);
+        else send_SU(0x01, 0x01);
     }
     else
     {
-        if(one == TRUE) send_UA(0x85);
-        else send_UA(0x05);
+        if(one == TRUE) send_SU(0x01, 0X85);
+        else send_SU(0x01, 0X05);
     }
 
     memcpy(packet, receive_bytes, i);
@@ -233,14 +233,12 @@ int llclose(int showStatistics)
 {
     if(ttx == TRUE)
     {
-
+        return ll_close_Tx();
     }
     else
     {
-
+        return ll_close_Rx();
     }
-
-    return 1;
 }
 
 int setup(LinkLayer connectionParameters) //Setup the connection
@@ -279,32 +277,17 @@ int setup(LinkLayer connectionParameters) //Setup the connection
     return fd;
 }
 
-int send_SET() //Send SET message from Tx to Rx
+int send_SU( char adress, char ctrl) //Send UA message from Rx to Tx
 {
     memset(&buf_send, 0, BUF_SIZE); //Clear sending buffer
 
     buf_send[0] = 0x7e; //Flag = 0x7e
-    buf_send[1] = 0x03; //Adress = 0x03
-    buf_send[2] = 0x03; //Control = 0x03
-    buf_send[3] = buf_send[1] ^ buf_send[2]; //BCC1 = Adress XOR Control
-    buf_send[4] = 0x7e; //Flag = 0x7e
-
-    if(write(fd, buf_send, 5) < 0){perror("send_Set write failed\n"); return 1;}
-
-    return 0;
-}
-
-int send_UA(char ctrl) //Send UA message from Rx to Tx
-{
-    memset(&buf_send, 0, BUF_SIZE); //Clear sending buffer
-
-    buf_send[0] = 0x7e; //Flag = 0x7e
-    buf_send[1] = 0x01; //Adress = 0x01
+    buf_send[1] = adress; //Adress = 0x01
     buf_send[2] = ctrl; //Control = 0x07
     buf_send[3] = buf_send[1] ^ buf_send[2]; //BCC1 = Adress XOR Control
     buf_send[4] = 0x7e; //Flag = 0x7e
 
-    if(write(fd, buf_send, 5) < 0){perror("send_UA write failed\n"); return 1;}
+    if(write(fd, buf_send, 5) < 0){perror("send_SU write failed\n"); return 1;}
 
     return 0;
 }
@@ -317,145 +300,29 @@ void alarmHandler(int signal)
 
 int ll_open_Tx()
 {
-
-    int stage = START;
-    int adress;
-    int control;
     alarmCount = 0;
+    int result = PENDING;
     alarm(0);
-    send_SET();
-    alarm(timeout);
     
-    while(TRUE)
+    while(alarmCount < retries && result != ACCEPTED)
     {
-        //Check timeouts
-        if(alarmEnabled == FALSE && alarmCount < retries)
-        {
-            send_SET();
-            alarm(timeout);
-            alarmEnabled = TRUE;
-        }
-        else if(alarmEnabled == FALSE && alarmCount == retries)
-        {
-            return 1;
-        }
-        //Recieve message
-        bytess = read(fd, buf_receive, 1);
-        buf_receive[bytess] = '\0';
-        //Process message
-        switch (stage)
-        {
-            case START:
-                if(buf_receive[0] == 0x7e)
-                {
-                    stage = FLAG;
-                }
-                break;
-            case FLAG:
-                if(buf_receive[0] == 0x01)
-                {
-                    stage = ADRESS;
-                    adress = buf_receive[0];
-                }
-                else if(buf_receive[0] == 0x7e);
-                else
-                    stage = START;
-                break;
-            case ADRESS:
-                if(buf_receive[0] == 0x07)
-                {
-                    stage = CONTROL;
-                    control = buf_receive[0];
-                }
-                else if(buf_receive[0] == 0x7e)
-                    stage = FLAG;
-                else
-                    stage = START;
-                break;
-            case CONTROL:
-                if(buf_receive[0] == (adress ^ control))
-                    stage = BCC;
-                else if(buf_receive[0] == 0x7e)
-                    stage = FLAG;
-                else
-                    stage = START;
-                break;
-            case BCC:
-                if(buf_receive[0] == 0x7e)
-                {
-                    return 0;
-                }
-                else
-                    stage = START;
-                break;
-            default:
-                break;
-        }
+        send_SU(0x03, 0x03);
+        alarm(timeout);
+        alarmEnabled = TRUE;
+        result = read_SU_frame(0x01, 0x07);
     }
+
+    if(result == ACCEPTED) return 0;
+    return -1;
 }
 
 int ll_open_Rx()
 {
-    int stage = START;
-    int adress;
-    int control;
     alarmCount = 0;
     
-    while(stage != END)
-    {
-        //Recieve message
-        bytess = read(fd, buf_receive, 1);
-        buf_receive[bytess] = '\0';
-        //Process message
-        switch (stage)
-        {
-            case START:
-                if(buf_receive[0] == 0x7e)
-                {
-                    stage++;
-                }
-                break;
-            case FLAG:
-                if(buf_receive[0] == 0x03)
-                {
-                    stage++;
-                    adress = buf_receive[0];
-                }
-                else if(buf_receive[0] == 0x7e);
-                else
-                    stage = 0;
-                break;
-            case ADRESS:
-                if(buf_receive[0] == 0x03)
-                {
-                    stage++;
-                    control = buf_receive[0];
-                }
-                else if(buf_receive[0] == 0x7e)
-                    stage = 1;
-                else
-                    stage = 0;
-                break;
-            case CONTROL:
-                if(buf_receive[0] == (adress ^ control))
-                    stage++;
-                else if(buf_receive[0] == 0x7e)
-                    stage = 1;
-                else
-                    stage = 0;
-                break;
-            case BCC:
-                if(buf_receive[0] == 0x7e)
-                    stage = END;
-                else
-                    stage = 0;
-                break;
-            default:
-                break;
-        }
-    }
+    read_SU_frame(0x03, 0x03);
 
-    return send_UA(0x07);
+    return send_SU(0x01, 0X07);
 }
 
 int send_inf_frame(bool tx, const unsigned char* buf, int bufSize)
@@ -635,4 +502,123 @@ int stuffing(const unsigned char* buf, int size, unsigned char* newBuf, char bcc
     }
 
     return size + extra;
+}
+
+int ll_close_Tx()
+{
+    //Iniciar variaveis
+    alarm(0);
+    int result = PENDING; //resultado da leitura
+    alarmCount = 0;       //Pending = Não recebeu mensagem antes do alarme acionar
+                          //Rejected = Recebeu a mensagem de REJ
+                          //Accepted = Recebeu a mensagem de RR  
+
+    //loop para enviar DISC frame e esperar pela mensagem
+    while(alarmCount < retries && result != ACCEPTED)
+    {
+        send_SU(0x03, 0x0b);
+        alarm(timeout);
+        alarmEnabled = TRUE;
+        result = read_SU_frame(0x01, 0x0B); //State machine
+    }
+    alarm(0);
+
+    if(result != ACCEPTED){return -1;}
+    send_SU(0x03, 0x07);
+    return 0;
+}
+
+int ll_close_Rx()
+{
+    read_SU_frame(0x03, 0x0b);
+
+    alarm(0);
+    int result = PENDING;
+    alarmCount = 0;
+
+    while(alarmCount < retries && result != ACCEPTED)
+    {
+        send_SU(0x01, 0x0b);
+        alarm(timeout);
+        alarmEnabled = TRUE;
+        result = read_SU_frame(0x03, 0x07);
+    }
+
+    if(result != ACCEPTED) return -1;
+    return 0;
+}
+
+int read_SU_frame(char adress, char ctrl)
+{
+    int stage = START;
+    int adr_r;
+    int ctrl_r;
+    int value = PENDING;
+
+    while(alarmEnabled == TRUE && stage != END)
+    {
+        bytess = read(fd, buf_receive, 1);
+        buf_receive[bytess] = '\0';
+        switch (stage)
+        {
+        case START:
+                if(buf_receive[0] == 0x7e)
+                {
+                    stage = FLAG;
+                }
+                break;
+
+            case FLAG:
+                if(buf_receive[0] == adress)
+                {
+                    stage = ADRESS;
+                    adr_r = buf_receive[0];
+                }
+                else if(buf_receive[0] == 0x7e);
+                else
+                    stage = 0;
+                break;
+
+            case ADRESS:
+                if(buf_receive[0] == ctrl)
+                {
+                    stage = CONTROL;
+                    ctrl_r = buf_receive[0];
+                }
+                else if(buf_receive[0] == 0x7e)
+                    stage = FLAG;
+                else
+                {
+                    stage = START;
+                }
+                break;
+
+            case CONTROL:
+                if(buf_receive[0] == (adr_r ^ ctrl_r))
+                {
+                    stage = BCC;
+                }
+                else if(buf_receive[0] == 0x7e)
+                    stage = FLAG;
+                else
+                    stage = START;
+                break;
+
+            case BCC:
+                if(buf_receive[0] == 0x7e)
+                {
+                    stage = END;
+                    value = ACCEPTED;
+                }
+                else
+                    stage = START;
+                break;
+
+            default:
+                break;
+        }
+    }
+
+    if(stage != END){value = PENDING;}
+    return value;
 }
