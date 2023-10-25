@@ -29,7 +29,8 @@ enum States
     ACCEPTED,
     REJECTED,
     DESTUFF,
-    DISCARD
+    DISCARD,
+    OTHER
 };
 
 //Connection variables
@@ -60,6 +61,7 @@ int send_inf_frame(bool tx, const unsigned char* buf, int bufSize);
 //Read functionas
 int read_control_frame();
 int read_SU_frame(char adress, char ctrl);
+int read_DISC_frame();
 //Aux functions
 int ll_open_Tx();
 int ll_open_Rx();
@@ -137,120 +139,123 @@ int llread(unsigned char *packet)
         //Read byte
         bytess = read(fd, buf_receive, 1);
         buf_receive[bytess] = '\0';
-        switch (stage)
+        if(bytess > 0)
         {
-        case START:
-            if(buf_receive[0] == 0x7e)
+            switch (stage)
             {
-                if(SET == TRUE)
+            case START:
+                if(buf_receive[0] == 0x7e)
+                {
+                    if(SET == TRUE)
+                    {
+                        stage = END;
+                    }
+                    else
+                    {
+                        stage = FLAG;
+                    }
+                }
+                break;
+
+            case FLAG:
+                if(buf_receive[0] == 0x03)
+                {
+                    adress = buf_receive[0];
+                    stage = ADRESS;
+                }
+                else if(buf_receive[0] == 0x7e);
+                else stage = START;
+                break;
+
+            case ADRESS:
+                if(buf_receive[0] == 0x03)
+                {
+                    SET = TRUE;
+                    stage = CONTROL;
+                }
+                else if(buf_receive[0] == 0x00)
+                {
+                    control = buf_receive[0];
+                    if(one == TRUE)
+                    {
+                        stage = DISCARD;
+                    }
+                    else
+                    {
+                        stage = CONTROL;
+                    }
+                }
+                else if(buf_receive[0] == 0x40)
+                {
+                    control = buf_receive[0];
+                    if(one == FALSE)
+                    {
+                        stage = DISCARD;
+                    }
+                    else
+                    {
+                        stage = CONTROL;
+                    }
+                }
+                else stage = START;
+                break;
+
+            case CONTROL:
+                if(SET == TRUE && buf_receive[0] == (adress ^ control))
+                {   
+                    stage = START;
+                }
+                else if(buf_receive[0] == (adress ^ control))
+                {
+                    stage = BCC;
+                }
+                else
+                {
+                    stage = DISCARD;
+                    wrong = TRUE;
+                }
+                break;
+
+            case BCC:
+                if(buf_receive[0] == 0x7d) //If the destuff flag appears, treat it in the next loop
+                {
+                    stage = DESTUFF;
+                }
+                else if(buf_receive[0] == 0x7e) //0x7e is the end flag
                 {
                     stage = END;
                 }
                 else
                 {
-                    stage = FLAG;
+                    receive_bytes[i] = buf_receive[0];
+                    i++;
                 }
-            }
-            break;
+                break;
 
-        case FLAG:
-            if(buf_receive[0] == 0x03)
-            {
-                adress = buf_receive[0];
-                stage = ADRESS;
-            }
-            else if(buf_receive[0] == 0x7e);
-            else stage = START;
-            break;
-
-        case ADRESS:
-            if(buf_receive[0] == 0x03)
-            {
-                SET = TRUE;
-                stage = CONTROL;
-            }
-            else if(buf_receive[0] == 0x00)
-            {
-                control = buf_receive[0];
-                if(one == TRUE)
+            case DESTUFF:
+                if(buf_receive[0] == 0x5e) //Destuffing
                 {
-                    stage = DISCARD;
+                    receive_bytes[i] = 0x7e;
+                    i++;
                 }
-                else
+                else if(buf_receive[0] == 0x5d)
                 {
-                    stage = CONTROL;
+                    receive_bytes[i] = 0x7d;
+                    i++;
                 }
-            }
-            else if(buf_receive[0] == 0x40)
-            {
-                control = buf_receive[0];
-                if(one == FALSE)
-                {
-                    stage = DISCARD;
-                }
-                else
-                {
-                    stage = CONTROL;
-                }
-            }
-            else stage = START;
-            break;
-
-        case CONTROL:
-            if(SET == TRUE && buf_receive[0] == (adress ^ control))
-            {   
-                stage = START;
-            }
-            else if(buf_receive[0] == (adress ^ control))
-            {
                 stage = BCC;
-            }
-            else
-            {
-                stage = DISCARD;
-                wrong = TRUE;
-            }
-            break;
+                break;
 
-        case BCC:
-            if(buf_receive[0] == 0x7d) //If the destuff flag appears, treat it in the next loop
-            {
-                stage = DESTUFF;
-            }
-            else if(buf_receive[0] == 0x7e) //0x7e is the end flag
-            {
-                stage = END;
-            }
-            else
-            {
-                receive_bytes[i] = buf_receive[0];
-                i++;
-            }
-            break;
+            case DISCARD:
+                if(buf_receive[0] == 0x7e)
+                {
+                    stage = END;
+                }
+                break;
 
-        case DESTUFF:
-            if(buf_receive[0] == 0x5e) //Destuffing
-            {
-                receive_bytes[i] = 0x7e;
-                i++;
+            default:
+                break;
             }
-            else if(buf_receive[0] == 0x5d)
-            {
-                receive_bytes[i] = 0x7d;
-                i++;
-            }
-            stage = BCC;
-            break;
-
-        case DISCARD:
-            if(buf_receive[0] == 0x7e)
-            {
-                stage = END;
-            }
-            break;
-
-        default:
-            break;
         }
     }
     //i points to bcc2, by doing i-- it now points to the last byte of data
@@ -265,7 +270,7 @@ int llread(unsigned char *packet)
 
     
     //check if the bcc2 is correct and send the respective message
-    if(bcc2 != receive_bytes[i] && wrong == TRUE)
+    if(bcc2 != receive_bytes[i] || wrong == TRUE)
     {
         if(one == TRUE) {send_SU(0x01, 0X01);}
         else {send_SU(0x01, 0x81);}
@@ -417,81 +422,84 @@ int read_control_frame()
     {
         bytess = read(fd, buf_receive, 1);
         buf_receive[bytess] = '\0';
-        switch (stage)
+        if(bytess > 0)
         {
-        case START:
-                if(buf_receive[0] == 0x7e)
-                {
-                    stage = FLAG;
-                }
-                break;
+            switch (stage)
+            {
+            case START:
+                    if(buf_receive[0] == 0x7e)
+                    {
+                        stage = FLAG;
+                    }
+                    break;
 
-            case FLAG:
-                if(buf_receive[0] == 0x01)
-                {
-                    stage = ADRESS;
-                    adress = buf_receive[0];
-                }
-                else if(buf_receive[0] == 0x7e);
-                else
-                    stage = 0;
-                break;
+                case FLAG:
+                    if(buf_receive[0] == 0x01)
+                    {
+                        stage = ADRESS;
+                        adress = buf_receive[0];
+                    }
+                    else if(buf_receive[0] == 0x7e);
+                    else
+                        stage = 0;
+                    break;
 
-            case ADRESS:
-                if(buf_receive[0] == 0x85 && one == 0)
-                {
-                    stage = CONTROL;
-                    control = buf_receive[0];
-                    value = ACCEPTED;
-                }
-                else if(buf_receive[0] == 0x05 && one == 1)
-                {
-                    stage = CONTROL;
-                    control = buf_receive[0];
-                    value = ACCEPTED;
-                }
-                else if(buf_receive[0] == 0x01 && one == 1)
-                {
-                    stage = CONTROL;
-                    control = buf_receive[0];
-                    value = REJECTED;
-                }
-                else if(buf_receive[0] == 0x81 && one == 0)
-                {
-                    stage = CONTROL;
-                    control = buf_receive[0];
-                    value = REJECTED;
-                }
-                else if(buf_receive[0] == 0x7e)
-                    stage = FLAG;
-                else
-                {
-                    stage = START;
-                }
-                break;
+                case ADRESS:
+                    if(buf_receive[0] == 0x85 && one == 0)
+                    {
+                        stage = CONTROL;
+                        control = buf_receive[0];
+                        value = ACCEPTED;
+                    }
+                    else if(buf_receive[0] == 0x05 && one == 1)
+                    {
+                        stage = CONTROL;
+                        control = buf_receive[0];
+                        value = ACCEPTED;
+                    }
+                    else if(buf_receive[0] == 0x01 && one == 1)
+                    {
+                        stage = CONTROL;
+                        control = buf_receive[0];
+                        value = REJECTED;
+                    }
+                    else if(buf_receive[0] == 0x81 && one == 0)
+                    {
+                        stage = CONTROL;
+                        control = buf_receive[0];
+                        value = REJECTED;
+                    }
+                    else if(buf_receive[0] == 0x7e)
+                        stage = FLAG;
+                    else
+                    {
+                        stage = START;
+                    }
+                    break;
 
-            case CONTROL:
-                if(buf_receive[0] == (adress ^ control))
-                {
-                    stage = BCC;
-                }
-                else if(buf_receive[0] == 0x7e)
-                    stage = FLAG;
-                else
-                    stage = START;
-                break;
+                case CONTROL:
+                    if(buf_receive[0] == (adress ^ control))
+                    {
+                        stage = BCC;
+                    }
+                    else if(buf_receive[0] == 0x7e)
+                        stage = FLAG;
+                    else
+                        stage = START;
+                    break;
 
-            case BCC:
-                if(buf_receive[0] == 0x7e)
-                {
-                    stage = END;
-                }
-                else
-                    stage = START;
-                break;
+                case BCC:
+                    if(buf_receive[0] == 0x7e)
+                    {
+                        stage = END;
+                    }
+                    else
+                        stage = START;
+                    break;
 
-            default:
-                break;
+                default:
+                    break;
+            }
         }
     }
 
@@ -510,67 +518,165 @@ int read_SU_frame(char adress, char ctrl)
     {
         bytess = read(fd, buf_receive, 1);
         buf_receive[bytess] = '\0';
-        switch (stage)
+        if(bytess > 0)
         {
-        case START:
-                if(buf_receive[0] == 0x7e)
-                {
-                    stage = FLAG;
-                }
-                break;
+            switch (stage)
+            {
+            case START:
+                    if(buf_receive[0] == 0x7e)
+                    {
+                        stage = FLAG;
+                    }
+                    break;
 
-            case FLAG:
-                if(buf_receive[0] == adress)
-                {
-                    stage = ADRESS;
-                    adr_r = buf_receive[0];
-                }
-                else if(buf_receive[0] == 0x7e);
-                else
-                    stage = 0;
-                break;
+                case FLAG:
+                    if(buf_receive[0] == adress)
+                    {
+                        stage = ADRESS;
+                        adr_r = buf_receive[0];
+                    }
+                    else if(buf_receive[0] == 0x7e);
+                    else
+                        stage = 0;
+                    break;
 
-            case ADRESS:
-                if(buf_receive[0] == ctrl)
-                {
-                    stage = CONTROL;
-                    ctrl_r = buf_receive[0];
-                }
-                else if(buf_receive[0] == 0x7e)
-                    stage = FLAG;
-                else
-                {
-                    stage = START;
-                }
-                break;
+                case ADRESS:
+                    if(buf_receive[0] == ctrl)
+                    {
+                        stage = CONTROL;
+                        ctrl_r = buf_receive[0];
+                    }
+                    else if(buf_receive[0] == 0x7e)
+                        stage = FLAG;
+                    else
+                    {
+                        stage = START;
+                    }
+                    break;
 
-            case CONTROL:
-                if(buf_receive[0] == (adr_r ^ ctrl_r))
-                {
-                    stage = BCC;
-                }
-                else if(buf_receive[0] == 0x7e)
-                    stage = FLAG;
-                else
-                    stage = START;
-                break;
+                case CONTROL:
+                    if(buf_receive[0] == (adr_r ^ ctrl_r))
+                    {
+                        stage = BCC;
+                    }
+                    else if(buf_receive[0] == 0x7e)
+                        stage = FLAG;
+                    else
+                        stage = START;
+                    break;
 
-            case BCC:
-                if(buf_receive[0] == 0x7e)
-                {
-                    stage = END;
-                    value = ACCEPTED;
-                }
-                else
-                    stage = START;
-                break;
+                case BCC:
+                    if(buf_receive[0] == 0x7e)
+                    {
+                        stage = END;
+                        value = ACCEPTED;
+                    }
+                    else
+                        stage = START;
+                    break;
 
-            default:
-                break;
+                default:
+                    break;
+            }
         }
     }
 
     if(stage != END){value = PENDING;}
+    return value;
+}
+
+int read_DISC_frame()
+{
+    int stage = START;
+    int adr_r;
+    int ctrl_r;
+    int value = PENDING;
+
+    while(alarmEnabled == TRUE && stage != END)
+    {
+        bytess = read(fd, buf_receive, 1);
+        buf_receive[bytess] = '\0';
+        if(bytess > 0)
+        {
+            switch (stage)
+            {
+            case START:
+                    if(buf_receive[0] == 0x7e)
+                    {
+                        stage = FLAG;
+                    }
+                    break;
+
+                case FLAG:
+                    if(buf_receive[0] == 0x03)
+                    {
+                        stage = ADRESS;
+                        adr_r = buf_receive[0];
+                    }
+                    else if(buf_receive[0] == 0x7e);
+                    else
+                        stage = START;
+                    break;
+
+                case ADRESS:
+                    if(buf_receive[0] == 0x0b)
+                    {
+                        stage = CONTROL;
+                        ctrl_r = buf_receive[0];
+                    }
+                    else if(buf_receive[0] == 0x00 || buf_receive[0] == 0x40)
+                    {
+                        stage = DISCARD;
+                        value = OTHER;
+                    }
+                    else if(buf_receive[0] == 0x7e)
+                        stage = FLAG;
+                    else
+                    {
+                        stage = START;
+                    }
+                    break;
+
+                case CONTROL:
+                    if(buf_receive[0] == (adr_r ^ ctrl_r))
+                    {
+                        stage = BCC;
+                    }
+                    else if(buf_receive[0] == 0x7e)
+                        stage = FLAG;
+                    else
+                        stage = START;
+                    break;
+
+                case BCC:
+                    if(buf_receive[0] == 0x7e)
+                    {
+                        stage = END;
+                        value = ACCEPTED;
+                    }
+                    else
+                        stage = START;
+                    break;
+
+                case DISCARD:
+                    if(buf_receive[0] == 0x7e)
+                    {
+                        stage = END;
+                    }
+                    break;
+
+                default:
+                    break;
+            }
+        }
+    }
+
+    if(stage != END){value = PENDING;}
+    if(value == OTHER)
+    {
+        if(one == TRUE) {send_SU(0x01, 0X05);}
+        else {send_SU(0x01, 0X85);}
+    }
     return value;
 }
 
@@ -633,11 +739,16 @@ int ll_close_Tx()
 
 int ll_close_Rx()
 {
-    read_SU_frame(0x03, 0x0b);
-
     alarm(0);
     int result = PENDING;
     alarmCount = 0;
+
+    while (result != ACCEPTED)
+    {
+        result = read_DISC_frame();
+    }
+    
+    result = PENDING;
 
     while(alarmCount < retries && result != ACCEPTED)
     {
