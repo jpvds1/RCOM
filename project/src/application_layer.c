@@ -120,7 +120,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
             if(receivedSize < 0) {free(packetReceived); exit(-1);}
             if(packetReceived[0] == 2) continue; //First Control Packet
             if(packetReceived[0] == 3) break; //Last Control Packet
-            fwrite(getData(packetReceived, receivedSize), sizeof(unsigned char), receivedSize-2, file);
+            fwrite(getData(packetReceived, receivedSize), sizeof(unsigned char), receivedSize-3, file);
         }
         free(packetReceived);
     }
@@ -186,7 +186,7 @@ unsigned char* DataPacket(int size, const unsigned char* data, unsigned long int
 unsigned char* getData(const unsigned char* data, int size)
 {
     //Remove the packet header
-    unsigned char* parsedData = (unsigned char*) malloc(size-2);
-    memcpy(parsedData, data+3, size-2);
+    unsigned char* parsedData = (unsigned char*) malloc(size-3);
+    memcpy(parsedData, data+3, size-3);
     return parsedData;
 }

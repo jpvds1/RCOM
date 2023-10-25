@@ -281,8 +281,6 @@ int llread(unsigned char *packet)
     if(memcpy(packet, receive_bytes, i) == NULL){perror("llread memcpy fail"); exit(-1);}
     free(receive_bytes);
 
-    i--;
-
     return i;
 }
 
