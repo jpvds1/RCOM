@@ -17,44 +17,53 @@
 #define BUF_SIZE 256
 
 //States (state machine)
-#define START 0
-#define FLAG 1
-#define ADRESS 2
-#define CONTROL 3
-#define BCC 4
-#define END 5
-#define PENDING 6
-#define ACCEPTED 7
-#define REJECTED 8
-#define DESTUFF 9
+enum States
+{
+    START,
+    FLAG,
+    ADRESS,
+    CONTROL,
+    BCC,
+    END,
+    PENDING,
+    ACCEPTED,
+    REJECTED,
+    DESTUFF
+};
 
+//Connection variables
 int fd;
 struct termios oldtio;
 struct termios newtio;
-int alarmEnabled = TRUE;
-int alarmCount = 0;
-unsigned char buf_send[MAX_PAYLOAD_SIZE * 2 + 6] = {0}; 
-unsigned char buf_receive[2] = {0}; // +1: Save space for the final '\0' char
-int bytess;
-int STOP = FALSE;
 int retries;
 int timeout;
 bool one = FALSE;
 bool ttx;
+//Message buffer variables
+unsigned char buf_send[MAX_PAYLOAD_SIZE * 2 + 6] = {0}; 
+unsigned char buf_receive[2] = {0};
+//Alarm variables
+int alarmEnabled = TRUE;
+int alarmCount = 0;
+//Read variables
+int bytess;
+int STOP = FALSE;
+
 
 //Setup Functions
 int setup(LinkLayer connectionParameters);
 void alarmHandler(int signal);
 //Message related functions
 int send_SU(char adress, char ctrl);
+int send_inf_frame(bool tx, const unsigned char* buf, int bufSize);
+//Read functionas
+int read_control_frame();
+int read_SU_frame(char adress, char ctrl);
 //Aux functions
 int ll_open_Tx();
 int ll_open_Rx();
 int ll_close_Tx();
 int ll_close_Rx();
-int send_inf_frame(bool tx, const unsigned char* buf, int bufSize);
-int read_control_frame();
-int read_SU_frame(char adress, char ctrl);
 int stuffing(const unsigned char* buf, int size, unsigned char* newBuf, char bcc2);
 
 ////////////////////////////////////////////////
@@ -241,6 +250,9 @@ int llclose(int showStatistics)
     }
 }
 
+////////////////////////////////////////////////
+// SETUP FUNCTIONS
+////////////////////////////////////////////////
 int setup(LinkLayer connectionParameters) //Setup the connection
 {
     (void)signal(SIGALRM, alarmHandler);
@@ -277,6 +289,15 @@ int setup(LinkLayer connectionParameters) //Setup the connection
     return fd;
 }
 
+void alarmHandler(int signal)
+{
+    alarmEnabled = FALSE;
+    alarmCount++;
+}
+
+////////////////////////////////////////////////
+// MESSAGE FUNCTIONS
+////////////////////////////////////////////////
 int send_SU( char adress, char ctrl) //Send UA message from Rx to Tx
 {
     memset(&buf_send, 0, BUF_SIZE); //Clear sending buffer
@@ -290,39 +311,6 @@ int send_SU( char adress, char ctrl) //Send UA message from Rx to Tx
     if(write(fd, buf_send, 5) < 0){perror("send_SU write failed\n"); return 1;}
 
     return 0;
-}
-
-void alarmHandler(int signal)
-{
-    alarmEnabled = FALSE;
-    alarmCount++;
-}
-
-int ll_open_Tx()
-{
-    alarmCount = 0;
-    int result = PENDING;
-    alarm(0);
-    
-    while(alarmCount < retries && result != ACCEPTED)
-    {
-        send_SU(0x03, 0x03);
-        alarm(timeout);
-        alarmEnabled = TRUE;
-        result = read_SU_frame(0x01, 0x07);
-    }
-
-    if(result == ACCEPTED) return 0;
-    return -1;
-}
-
-int ll_open_Rx()
-{
-    alarmCount = 0;
-    
-    read_SU_frame(0x03, 0x03);
-
-    return send_SU(0x01, 0X07);
 }
 
 int send_inf_frame(bool tx, const unsigned char* buf, int bufSize)
@@ -361,6 +349,9 @@ int send_inf_frame(bool tx, const unsigned char* buf, int bufSize)
     return 0;
 }
 
+////////////////////////////////////////////////
+// READ FUNCTIONS
+////////////////////////////////////////////////
 int read_control_frame()
 {
     int stage = START;
@@ -454,100 +445,6 @@ int read_control_frame()
     return value;
 }
 
-int stuffing(const unsigned char* buf, int size, unsigned char* newBuf, char bcc2)
-{
-    int extra = 0;
-
-    for(int i = 0; i < size; i++)
-    {
-        if(buf[i] == 0x7e)
-        {
-            newBuf[i + extra] = 0x7d;
-            extra++;
-            newBuf = realloc(newBuf, size + extra);
-            newBuf[i + extra] =  0x5e;
-        }
-        else if(buf[i] == 0x7d)
-        {
-            newBuf[i + extra] = 0x7d;
-            extra++;
-            newBuf = realloc(newBuf, size + extra);
-            newBuf[i + extra] =  0x5d;
-        }
-        else
-        {
-            newBuf[i + extra] = buf[i];
-        }
-    }
-
-    if(bcc2 == 0x7d)
-    {
-        extra += 2;
-        newBuf = realloc(newBuf, size + extra);
-        newBuf[size + extra - 2] = 0x7d;
-        newBuf[size + extra - 1] = 0x5d;
-    }
-    else if(bcc2 == 0x7e)
-    {
-        extra += 2;
-        newBuf = realloc(newBuf, size + extra);
-        newBuf[size + extra - 2] = 0x7d;
-        newBuf[size + extra - 1] = 0x5e;
-    }
-    else
-    {
-        extra++;
-        newBuf = realloc(newBuf, size + extra);
-        newBuf[size + extra - 1] = bcc2;
-    }
-
-    return size + extra;
-}
-
-int ll_close_Tx()
-{
-    //Iniciar variaveis
-    alarm(0);
-    int result = PENDING; //resultado da leitura
-    alarmCount = 0;       //Pending = Não recebeu mensagem antes do alarme acionar
-                          //Rejected = Recebeu a mensagem de REJ
-                          //Accepted = Recebeu a mensagem de RR  
-
-    //loop para enviar DISC frame e esperar pela mensagem
-    while(alarmCount < retries && result != ACCEPTED)
-    {
-        send_SU(0x03, 0x0b);
-        alarm(timeout);
-        alarmEnabled = TRUE;
-        result = read_SU_frame(0x01, 0x0B); //State machine
-    }
-    alarm(0);
-
-    if(result != ACCEPTED){return -1;}
-    send_SU(0x03, 0x07);
-    return 0;
-}
-
-int ll_close_Rx()
-{
-    read_SU_frame(0x03, 0x0b);
-
-    alarm(0);
-    int result = PENDING;
-    alarmCount = 0;
-
-    while(alarmCount < retries && result != ACCEPTED)
-    {
-        send_SU(0x01, 0x0b);
-        alarm(timeout);
-        alarmEnabled = TRUE;
-        result = read_SU_frame(0x03, 0x07);
-    }
-
-    if(result != ACCEPTED) return -1;
-    return 0;
-}
-
 int read_SU_frame(char adress, char ctrl)
 {
     int stage = START;
@@ -621,4 +518,128 @@ int read_SU_frame(char adress, char ctrl)
 
     if(stage != END){value = PENDING;}
     return value;
+}
+
+////////////////////////////////////////////////
+// AUX FUNCTIONS
+////////////////////////////////////////////////
+int ll_open_Tx()
+{
+    alarmCount = 0;
+    int result = PENDING;
+    alarm(0);
+    
+    while(alarmCount < retries && result != ACCEPTED)
+    {
+        send_SU(0x03, 0x03);
+        alarm(timeout);
+        alarmEnabled = TRUE;
+        result = read_SU_frame(0x01, 0x07);
+    }
+
+    if(result == ACCEPTED) return 0;
+    return -1;
+}
+
+int ll_open_Rx()
+{
+    alarmCount = 0;
+    
+    read_SU_frame(0x03, 0x03);
+
+    return send_SU(0x01, 0X07);
+}
+
+int ll_close_Tx()
+{
+    //Iniciar variaveis
+    alarm(0);
+    int result = PENDING; //resultado da leitura
+    alarmCount = 0;       //Pending = Não recebeu mensagem antes do alarme acionar
+                          //Rejected = Recebeu a mensagem de REJ
+                          //Accepted = Recebeu a mensagem de RR  
+
+    //loop para enviar DISC frame e esperar pela mensagem
+    while(alarmCount < retries && result != ACCEPTED)
+    {
+        send_SU(0x03, 0x0b);
+        alarm(timeout);
+        alarmEnabled = TRUE;
+        result = read_SU_frame(0x01, 0x0B); //State machine
+    }
+    alarm(0);
+
+    if(result != ACCEPTED){return -1;}
+    send_SU(0x03, 0x07);
+    return 0;
+}
+
+int ll_close_Rx()
+{
+    read_SU_frame(0x03, 0x0b);
+
+    alarm(0);
+    int result = PENDING;
+    alarmCount = 0;
+
+    while(alarmCount < retries && result != ACCEPTED)
+    {
+        send_SU(0x01, 0x0b);
+        alarm(timeout);
+        alarmEnabled = TRUE;
+        result = read_SU_frame(0x03, 0x07);
+    }
+
+    if(result != ACCEPTED) return -1;
+    return 0;
+}
+
+int stuffing(const unsigned char* buf, int size, unsigned char* newBuf, char bcc2)
+{
+    int extra = 0;
+
+    for(int i = 0; i < size; i++)
+    {
+        if(buf[i] == 0x7e)
+        {
+            newBuf[i + extra] = 0x7d;
+            extra++;
+            newBuf = realloc(newBuf, size + extra);
+            newBuf[i + extra] =  0x5e;
+        }
+        else if(buf[i] == 0x7d)
+        {
+            newBuf[i + extra] = 0x7d;
+            extra++;
+            newBuf = realloc(newBuf, size + extra);
+            newBuf[i + extra] =  0x5d;
+        }
+        else
+        {
+            newBuf[i + extra] = buf[i];
+        }
+    }
+
+    if(bcc2 == 0x7d)
+    {
+        extra += 2;
+        newBuf = realloc(newBuf, size + extra);
+        newBuf[size + extra - 2] = 0x7d;
+        newBuf[size + extra - 1] = 0x5d;
+    }
+    else if(bcc2 == 0x7e)
+    {
+        extra += 2;
+        newBuf = realloc(newBuf, size + extra);
+        newBuf[size + extra - 2] = 0x7d;
+        newBuf[size + extra - 1] = 0x5e;
+    }
+    else
+    {
+        extra++;
+        newBuf = realloc(newBuf, size + extra);
+        newBuf[size + extra - 1] = bcc2;
+    }
+
+    return size + extra;
 }
