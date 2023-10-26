@@ -106,7 +106,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
     }
     else
     {
-        unsigned long int receivedSize;
+        long int receivedSize;
         unsigned char* packetReceived = (unsigned char*) malloc(MAX_PAYLOAD_SIZE);
         if(packetReceived == NULL){perror("packetReceived malloc\n"); exit(-1);}
 
@@ -117,7 +117,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         {
             //If its a Data Packet, write to the file
             receivedSize = llread(packetReceived);
-            if(receivedSize < 0) continue;;
+            if(receivedSize < 0) continue;
             if(packetReceived[0] == 2) continue; //First Control Packet
             if(packetReceived[0] == 3) break; //Last Control Packet
             fwrite(getData(packetReceived, receivedSize), sizeof(unsigned char), receivedSize-3, file);
