@@ -117,7 +117,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         {
             //If its a Data Packet, write to the file
             receivedSize = llread(packetReceived);
-            if(receivedSize < 0) {free(packetReceived); exit(-1);}
+            if(receivedSize < 0) continue;;
             if(packetReceived[0] == 2) continue; //First Control Packet
             if(packetReceived[0] == 3) break; //Last Control Packet
             fwrite(getData(packetReceived, receivedSize), sizeof(unsigned char), receivedSize-3, file);

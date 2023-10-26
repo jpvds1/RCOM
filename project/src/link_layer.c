@@ -270,10 +270,15 @@ int llread(unsigned char *packet)
 
     
     //check if the bcc2 is correct and send the respective message
-    if(bcc2 != receive_bytes[i] || wrong == TRUE)
+    if(wrong == TRUE)
+    {
+        return -1;
+    }
+    if(bcc2 != receive_bytes[i])
     {
         if(one == TRUE) {send_SU(0x01, 0X01);}
         else {send_SU(0x01, 0x81);}
+        return -1;
     }
     else
     {
