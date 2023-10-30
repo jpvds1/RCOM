@@ -133,6 +133,7 @@ int llread(unsigned char *packet)
     int i = 0;
     bool wrong = FALSE;
     bool SET = FALSE;
+    bool duplicate = FALSE;
 
     while(stage != END)
     {
@@ -178,6 +179,7 @@ int llread(unsigned char *packet)
                     control = buf_receive[0];
                     if(one == TRUE)
                     {
+                        duplicate = TRUE;
                         stage = DISCARD;
                     }
                     else
@@ -190,6 +192,7 @@ int llread(unsigned char *packet)
                     control = buf_receive[0];
                     if(one == FALSE)
                     {
+                        duplicate = TRUE;
                         stage = DISCARD;
                     }
                     else
@@ -282,7 +285,10 @@ int llread(unsigned char *packet)
     }
     else
     {
-        one = !one;
+        if(duplicate == FALSE)
+        {
+            one = !one;
+        }
         if(one == TRUE) {send_SU(0x01, 0X85);}
         else {send_SU(0x01, 0X05);}
     }

@@ -13,6 +13,7 @@
 unsigned char* CtrlPacket(int size, bool start, const char* filename, unsigned long int *packetSize);
 unsigned char* DataPacket(int size, const unsigned char* data, unsigned long int *packetSize);
 unsigned char* getData(const unsigned char* data, int size);
+void restore();
 
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename)
@@ -125,6 +126,7 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         free(packetReceived);
     }
     if(llclose(0) < 0) exit(-1);
+    restore();
 }
 
 unsigned char* CtrlPacket(int size, bool start, const char* filename, unsigned long int *packetSize)
@@ -189,4 +191,14 @@ unsigned char* getData(const unsigned char* data, int size)
     unsigned char* parsedData = (unsigned char*) malloc(size-3);
     memcpy(parsedData, data+3, size-3);
     return parsedData;
+}
+
+void restore()
+{
+    // Restore the old port settings
+    if (tcsetattr(fd, TCSANOW, &oldtio) == -1)
+    {
+        perror("tcsetattr");
+        exit(-1);
+    }
 }
