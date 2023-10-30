@@ -55,6 +55,7 @@ int STOP = FALSE;
 //Setup Functions
 int setup(LinkLayer connectionParameters);
 void alarmHandler(int signal);
+int restore();
 //Message related functions
 int send_SU(char adress, char ctrl);
 int send_inf_frame(bool tx, const unsigned char* buf, int bufSize);
@@ -314,6 +315,8 @@ int llclose(int showStatistics)
     {
         return ll_close_Rx();
     }
+
+    return restore();
 }
 
 ////////////////////////////////////////////////
@@ -825,3 +828,16 @@ int stuffing(const unsigned char* buf, int size, unsigned char* newBuf, char bcc
 
     return size + extra;
 }
+
+int restore()
+{
+    // Restore the old port settings
+    if (tcsetattr(fd, TCSANOW, &oldtio) == -1)
+    {
+        perror("tcsetattr");
+        return -1;
+    }
+
+    return 0;
+}
+
