@@ -262,6 +262,17 @@ int llread(unsigned char *packet)
             }
         }
     }
+    //check if the bcc2 is correct and send the respective message
+    if(wrong == TRUE)
+    {
+        return -1;
+    }
+    if(duplicate == TRUE)
+    {
+        if(one == TRUE) {send_SU(0x01, 0X85);}
+        else {send_SU(0x01, 0X05);}
+        return -1;
+    }
     //i points to bcc2, by doing i-- it now points to the last byte of data
     i--;
 
@@ -272,12 +283,6 @@ int llread(unsigned char *packet)
         bcc2 ^= receive_bytes[j];
     }
 
-    
-    //check if the bcc2 is correct and send the respective message
-    if(wrong == TRUE)
-    {
-        return -1;
-    }
     if(bcc2 != receive_bytes[i])
     {
         if(one == TRUE) {send_SU(0x01, 0X01);}
@@ -286,10 +291,7 @@ int llread(unsigned char *packet)
     }
     else
     {
-        if(duplicate == FALSE)
-        {
-            one = !one;
-        }
+        one = !one;
         if(one == TRUE) {send_SU(0x01, 0X85);}
         else {send_SU(0x01, 0X05);}
     }
