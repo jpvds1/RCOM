@@ -39,8 +39,8 @@ struct termios oldtio;
 struct termios newtio;
 int retries;
 int timeout;
-bool one = FALSE;
-bool ttx;
+bool frame_number = FALSE;
+bool transmitter;
 //Message buffer variables
 unsigned char buf_send[MAX_PAYLOAD_SIZE * 2 + 6] = {0}; 
 unsigned char buf_receive[2] = {0};
@@ -115,7 +115,7 @@ int llwrite(const unsigned char *buf, int bufSize)
     }
     alarm(0);
 
-    one = !one; //Change the one value for the frame to come
+    frame_number = !frame_number; //Change the frame_number value for the frame to come
 
     if(result != ACCEPTED){return -1;}
     return bufSize;
@@ -126,13 +126,13 @@ int llwrite(const unsigned char *buf, int bufSize)
 ////////////////////////////////////////////////
 int llread(unsigned char *packet)
 {
-    unsigned char* receive_bytes = (unsigned char*) malloc(MAX_PAYLOAD_SIZE * 2);
+    unsigned char* received_bytes = (unsigned char*) malloc(MAX_PAYLOAD_SIZE * 2);
     int stage = START;
     int adress;
     int control;
     alarmCount = 0;
     int i = 0;
-    bool wrong = FALSE;
+    bool wrong_bcc = FALSE;
     bool SET = FALSE;
     bool duplicate = FALSE;
 
@@ -178,7 +178,7 @@ int llread(unsigned char *packet)
                 else if(buf_receive[0] == 0x00)
                 {
                     control = buf_receive[0];
-                    if(one == TRUE)
+                    if(frame_number == TRUE)
                     {
                         duplicate = TRUE;
                         stage = DISCARD;
@@ -191,7 +191,7 @@ int llread(unsigned char *packet)
                 else if(buf_receive[0] == 0x40)
                 {
                     control = buf_receive[0];
-                    if(one == FALSE)
+                    if(frame_number == FALSE)
                     {
                         duplicate = TRUE;
                         stage = DISCARD;
@@ -216,7 +216,7 @@ int llread(unsigned char *packet)
                 else
                 {
                     stage = DISCARD;
-                    wrong = TRUE;
+                    wrong_bcc = TRUE;
                 }
                 break;
 
@@ -231,7 +231,7 @@ int llread(unsigned char *packet)
                 }
                 else
                 {
-                    receive_bytes[i] = buf_receive[0];
+                    received_bytes[i] = buf_receive[0];
                     i++;
                 }
                 break;
@@ -239,12 +239,12 @@ int llread(unsigned char *packet)
             case DESTUFF:
                 if(buf_receive[0] == 0x5e) //Destuffing
                 {
-                    receive_bytes[i] = 0x7e;
+                    received_bytes[i] = 0x7e;
                     i++;
                 }
                 else if(buf_receive[0] == 0x5d)
                 {
-                    receive_bytes[i] = 0x7d;
+                    received_bytes[i] = 0x7d;
                     i++;
                 }
                 stage = BCC;
@@ -263,13 +263,13 @@ int llread(unsigned char *packet)
         }
     }
     //check if the bcc2 is correct and send the respective message
-    if(wrong == TRUE)
+    if(wrong_bcc == TRUE)
     {
         return -1;
     }
     if(duplicate == TRUE)
     {
-        if(one == TRUE) {send_SU(0x01, 0X85);}
+        if(frame_number == TRUE) {send_SU(0x01, 0X85);}
         else {send_SU(0x01, 0X05);}
         return -1;
     }
@@ -277,28 +277,28 @@ int llread(unsigned char *packet)
     i--;
 
     //calculate the bcc2
-    unsigned char bcc2 = receive_bytes[0];
+    unsigned char bcc2 = received_bytes[0];
     for(int j = 1; j < i; j++)
     {
-        bcc2 ^= receive_bytes[j];
+        bcc2 ^= received_bytes[j];
     }
 
-    if(bcc2 != receive_bytes[i])
+    if(bcc2 != received_bytes[i])
     {
-        if(one == TRUE) {send_SU(0x01, 0X01);}
+        if(frame_number == TRUE) {send_SU(0x01, 0X01);}
         else {send_SU(0x01, 0x81);}
         return -1;
     }
     else
     {
-        one = !one;
-        if(one == TRUE) {send_SU(0x01, 0X85);}
+        frame_number = !frame_number;
+        if(frame_number == TRUE) {send_SU(0x01, 0X85);}
         else {send_SU(0x01, 0X05);}
     }
 
     //copy the data bytes to the packet
-    if(memcpy(packet, receive_bytes, i) == NULL){perror("llread memcpy fail"); exit(-1);}
-    free(receive_bytes);
+    if(memcpy(packet, received_bytes, i) == NULL){perror("llread memcpy fail"); exit(-1);}
+    free(received_bytes);
 
     return i;
 }
@@ -309,7 +309,7 @@ int llread(unsigned char *packet)
 int llclose(int showStatistics)
 {
     //Call the relevant aux functions depending on the role
-    if(ttx == TRUE)
+    if(transmitter == TRUE)
     {
         return ll_close_Tx();
     }
@@ -343,13 +343,13 @@ int setup(LinkLayer connectionParameters) //Setup the connection
     newtio.c_lflag = 0;
     if(connectionParameters.role == LlRx)
     {
-        ttx = FALSE;
+        transmitter = FALSE;
         newtio.c_cc[VTIME] = 0;
         newtio.c_cc[VMIN] = 0;
     }
     else
     {
-        ttx = TRUE;
+        transmitter = TRUE;
         newtio.c_cc[VTIME] = 0;
         newtio.c_cc[VMIN] = 0;
     }
@@ -396,7 +396,7 @@ int send_inf_frame(bool tx, const unsigned char* buf, int bufSize)
     //Set sender values
     if(tx == 1){adress = 0x03;}
     else {adress = 0x01;}
-    if(one == 1){control = 0x40;}
+    if(frame_number == 1){control = 0x40;}
     else {control = 0x00;}
 
     //Set buf_send
@@ -461,25 +461,25 @@ int read_control_frame()
                     break;
 
                 case ADRESS:
-                    if(buf_receive[0] == 0x85 && one == 0)
+                    if(buf_receive[0] == 0x85 && frame_number == 0)
                     {
                         stage = CONTROL;
                         control = buf_receive[0];
                         value = ACCEPTED;
                     }
-                    else if(buf_receive[0] == 0x05 && one == 1)
+                    else if(buf_receive[0] == 0x05 && frame_number == 1)
                     {
                         stage = CONTROL;
                         control = buf_receive[0];
                         value = ACCEPTED;
                     }
-                    else if(buf_receive[0] == 0x01 && one == 1)
+                    else if(buf_receive[0] == 0x01 && frame_number == 1)
                     {
                         stage = CONTROL;
                         control = buf_receive[0];
                         value = REJECTED;
                     }
-                    else if(buf_receive[0] == 0x81 && one == 0)
+                    else if(buf_receive[0] == 0x81 && frame_number == 0)
                     {
                         stage = CONTROL;
                         control = buf_receive[0];
@@ -526,8 +526,8 @@ int read_control_frame()
 int read_SU_frame(char adress, char ctrl)
 {
     int stage = START;
-    int adr_r;
-    int ctrl_r;
+    int adress;
+    int control;
     int value = PENDING;
 
     while(alarmEnabled == TRUE && stage != END)
@@ -549,7 +549,7 @@ int read_SU_frame(char adress, char ctrl)
                     if(buf_receive[0] == adress)
                     {
                         stage = ADRESS;
-                        adr_r = buf_receive[0];
+                        adress = buf_receive[0];
                     }
                     else if(buf_receive[0] == 0x7e);
                     else
@@ -560,7 +560,7 @@ int read_SU_frame(char adress, char ctrl)
                     if(buf_receive[0] == ctrl)
                     {
                         stage = CONTROL;
-                        ctrl_r = buf_receive[0];
+                        control = buf_receive[0];
                     }
                     else if(buf_receive[0] == 0x7e)
                         stage = FLAG;
@@ -571,7 +571,7 @@ int read_SU_frame(char adress, char ctrl)
                     break;
 
                 case CONTROL:
-                    if(buf_receive[0] == (adr_r ^ ctrl_r))
+                    if(buf_receive[0] == (adress ^ control))
                     {
                         stage = BCC;
                     }
@@ -604,8 +604,8 @@ int read_SU_frame(char adress, char ctrl)
 int read_DISC_frame()
 {
     int stage = START;
-    int adr_r;
-    int ctrl_r;
+    int adress;
+    int control;
     int value = PENDING;
 
     while(alarmEnabled == TRUE && stage != END)
@@ -627,7 +627,7 @@ int read_DISC_frame()
                     if(buf_receive[0] == 0x03)
                     {
                         stage = ADRESS;
-                        adr_r = buf_receive[0];
+                        adress = buf_receive[0];
                     }
                     else if(buf_receive[0] == 0x7e);
                     else
@@ -638,7 +638,7 @@ int read_DISC_frame()
                     if(buf_receive[0] == 0x0b)
                     {
                         stage = CONTROL;
-                        ctrl_r = buf_receive[0];
+                        control = buf_receive[0];
                     }
                     else if(buf_receive[0] == 0x00 || buf_receive[0] == 0x40)
                     {
@@ -654,7 +654,7 @@ int read_DISC_frame()
                     break;
 
                 case CONTROL:
-                    if(buf_receive[0] == (adr_r ^ ctrl_r))
+                    if(buf_receive[0] == (adress ^ control))
                     {
                         stage = BCC;
                     }
@@ -690,7 +690,7 @@ int read_DISC_frame()
     if(stage != END){value = PENDING;}
     if(value == OTHER)
     {
-        if(one == TRUE) {send_SU(0x01, 0X05);}
+        if(frame_number == TRUE) {send_SU(0x01, 0X05);}
         else {send_SU(0x01, 0X85);}
     }
     return value;
