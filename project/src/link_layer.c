@@ -135,6 +135,9 @@ int llread(unsigned char *packet)
     bool wrong_bcc = FALSE;
     bool SET = FALSE;
     bool duplicate = FALSE;
+    //sleep(1);
+    //sleep(2);
+    //sleep(3);
 
     while(stage != END)
     {
@@ -331,6 +334,9 @@ int setup(LinkLayer connectionParameters) //Setup the connection
     retries = connectionParameters.nRetransmissions;
     timeout = connectionParameters.timeout;
 
+    //Setup srand for testing purposes
+    //srand(time(0));
+
     fd = open(connectionParameters.serialPort, O_RDWR | O_NOCTTY);
 
     if (fd < 0){perror(connectionParameters.serialPort); exit(-1);}
@@ -371,6 +377,7 @@ void alarmHandler(int signal)
 ////////////////////////////////////////////////
 int send_SU( char adress, char ctrl) //Send UA message from Rx to Tx
 {
+    //int r = rand() % 100;
     memset(&buf_send, 0, BUF_SIZE); //Clear sending buffer
 
     buf_send[0] = 0x7e; //Flag = 0x7e
@@ -379,6 +386,14 @@ int send_SU( char adress, char ctrl) //Send UA message from Rx to Tx
     buf_send[3] = buf_send[1] ^ buf_send[2]; //BCC1 = Adress XOR Control
     buf_send[4] = 0x7e; //Flag = 0x7e
 
+    /*
+    if(r < 10)
+    {
+        printf("wrong bcc on SU frame\n");
+        buf_send[3] = ~buf_send[3];
+    }
+    */
+
     if(write(fd, buf_send, 5) < 0){perror("send_SU write failed\n"); exit(-1);}
 
     return 0;
@@ -386,6 +401,7 @@ int send_SU( char adress, char ctrl) //Send UA message from Rx to Tx
 
 int send_inf_frame(bool tx, const unsigned char* buf, int bufSize)
 {
+    //int r = rand() % 100;
     //set vatiables
     int control;
     int adress;
@@ -410,6 +426,13 @@ int send_inf_frame(bool tx, const unsigned char* buf, int bufSize)
     {
         bcc2 = bcc2 ^ buf[i];
     }
+    /*
+    if(r < 10)
+    {
+        printf("inf frame bcc2 wrong\n");
+        bcc2 = ~bcc2;
+    }
+    */
 
     //Stuff the data
     finalSize = stuffing(buf, bufSize, stuffedBuf, bcc2);
@@ -526,8 +549,8 @@ int read_control_frame()
 int read_SU_frame(char adress, char ctrl)
 {
     int stage = START;
-    int adress;
-    int control;
+    int adr_r;
+    int ctrl_r;
     int value = PENDING;
 
     while(alarmEnabled == TRUE && stage != END)
@@ -549,7 +572,7 @@ int read_SU_frame(char adress, char ctrl)
                     if(buf_receive[0] == adress)
                     {
                         stage = ADRESS;
-                        adress = buf_receive[0];
+                        adr_r = buf_receive[0];
                     }
                     else if(buf_receive[0] == 0x7e);
                     else
@@ -560,7 +583,7 @@ int read_SU_frame(char adress, char ctrl)
                     if(buf_receive[0] == ctrl)
                     {
                         stage = CONTROL;
-                        control = buf_receive[0];
+                        ctrl_r = buf_receive[0];
                     }
                     else if(buf_receive[0] == 0x7e)
                         stage = FLAG;
@@ -571,7 +594,7 @@ int read_SU_frame(char adress, char ctrl)
                     break;
 
                 case CONTROL:
-                    if(buf_receive[0] == (adress ^ control))
+                    if(buf_receive[0] == (adr_r ^ ctrl_r))
                     {
                         stage = BCC;
                     }

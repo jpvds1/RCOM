@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <math.h>
+#include <time.h>
 
 #define BUF_SIZE 256
 
@@ -17,10 +18,12 @@ unsigned char* getData(const unsigned char* data, int size);
 void applicationLayer(const char *serialPort, const char *role, int baudRate,
                       int nTries, int timeout, const char *filename)
 {
+    clock_t t;
+    t = clock();
     //Create the LinkLayer
     LinkLayer linkLayer;
     strcpy(linkLayer.serialPort, serialPort);
-    linkLayer.baudRate = baudRate;
+    linkLayer.baudRate = baudRate; //9600 5000 25000
     linkLayer.nRetransmissions = nTries;
     linkLayer.timeout = timeout;
     if(strcmp(role, "rx") == 0)
@@ -125,6 +128,9 @@ void applicationLayer(const char *serialPort, const char *role, int baudRate,
         free(packetReceived);
     }
     if(llclose(0) < 0) exit(-1);
+    t = clock() - t;
+    double time_taken = ((double)t)/CLOCKS_PER_SEC; // calculate the elapsed time
+    printf("The program took %f seconds to execute", time_taken);
 }
 
 unsigned char* CtrlPacket(int size, bool start, const char* filename, unsigned long int *packetSize)

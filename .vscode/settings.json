@@ -1,8 +1,11 @@
 {
     "files.associations": {
+        "*.embeddedhtml": "html",
         "types.h": "c",
         "unistd.h": "c",
         "application_layer.h": "c",
-        "string.h": "c"
+        "string.h": "c",
+        "termios-c_lflag.h": "c",
+        "termios-c_cflag.h": "c"
     }
 }
